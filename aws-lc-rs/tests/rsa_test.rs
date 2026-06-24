@@ -13,7 +13,7 @@ use aws_lc_rs::rsa::{
 };
 use aws_lc_rs::signature::{
     KeyPair, ParsedPublicKey, RsaKeyPair, RsaParameters, RsaPublicKeyComponents,
-    RsaSubjectPublicKey, UnparsedPublicKey,
+    RsaSubjectPublicKey, UnparsedPublicKey, VerificationAlgorithm,
 };
 use aws_lc_rs::test::to_hex_upper;
 use aws_lc_rs::{digest, rand, signature, test, test_file};
@@ -99,6 +99,7 @@ fn test_signature_rsa_pkcs1_sign() {
             let public_key = key_pair.public_key();
             {
                 let upk = UnparsedPublicKey::new(verification_alg, public_key.as_ref());
+                assert_eq!(public_key.as_ref(), upk.as_ref());
 
                 let mut actual = vec![0u8; key_pair.public_modulus_len()];
                 key_pair
@@ -115,6 +116,7 @@ fn test_signature_rsa_pkcs1_sign() {
 
             {
                 let ppk = ParsedPublicKey::new(verification_alg, public_key.as_ref()).unwrap();
+                assert_eq!(public_key.as_ref(), ppk.as_ref());
 
                 let mut actual = vec![0u8; key_pair.public_modulus_len()];
                 key_pair
@@ -127,6 +129,14 @@ fn test_signature_rsa_pkcs1_sign() {
                 let digest = Digest::import_less_safe(og_digest.as_ref(), digest_alg).unwrap();
                 key_pair.sign_digest(alg, &digest, actual.as_mut_slice())?;
                 assert!(ppk.verify_digest_sig(&digest, actual.as_slice()).is_ok());
+
+                let x509_bytes = ppk.as_der().unwrap();
+                let actual_x509_result = verification_alg.verify_digest_sig(
+                    x509_bytes.as_ref(),
+                    &digest,
+                    actual.as_slice(),
+                );
+                assert!(actual_x509_result.is_ok());
             }
 
             Ok(())
