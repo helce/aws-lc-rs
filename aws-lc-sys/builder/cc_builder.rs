@@ -235,13 +235,13 @@ impl CcBuilder {
                 if !compiler_is_msvc {
                     let flag = format!("-ffile-prefix-map={}=", self.manifest_dir.display());
                     if let Ok(true) = cc_build.is_flag_supported(&flag) {
-                        emit_warning(&format!("Using flag: {}", &flag));
+                        emit_warning(format!("Using flag: {}", &flag));
                         build_options.push(BuildOption::flag(&flag));
                     } else {
                         emit_warning("NOTICE: Build environment source paths might be visible in release binary.");
                         let flag = format!("-fdebug-prefix-map={}=", self.manifest_dir.display());
                         if let Ok(true) = cc_build.is_flag_supported(&flag) {
-                            emit_warning(&format!("Using flag: {}", &flag));
+                            emit_warning(format!("Using flag: {}", &flag));
                             build_options.push(BuildOption::flag(&flag));
                         }
                     }
@@ -357,6 +357,14 @@ impl CcBuilder {
         if !cflags.is_empty() {
             set_env_for_target("CFLAGS", cflags);
         }
+
+        // Add --noexecstack flag for assembly files to prevent executable stacks
+        // This matches the behavior of AWS-LC's CMake build which uses -Wa,--noexecstack
+        // See: https://github.com/aws/aws-lc/blob/main/crypto/CMakeLists.txt#L77
+        if target_os() == "linux" || target_os().ends_with("bsd") {
+            cc_build.asm_flag("-Wa,--noexecstack");
+        }
+
         cc_build
     }
 
@@ -384,7 +392,8 @@ impl CcBuilder {
 
         let compiler = if let Some(original_cflags) = optional_env_target("CFLAGS") {
             let mut new_cflags = original_cflags.clone();
-            new_cflags.push_str(" -O0");
+            // The `_FORTIFY_SOURCE` macro often requires optimizations to also be enabled, so unset it.
+            new_cflags.push_str(" -O0 -Wp,-U_FORTIFY_SOURCE");
             set_env_for_target("CFLAGS", &new_cflags);
             // cc-rs currently prioritizes flags provided by CFLAGS over the flags provided by the build script.
             // The environment variables used by the compiler are set when `get_compiler` is called.
@@ -467,7 +476,7 @@ impl CcBuilder {
                 std::path::Path::new(source).starts_with("third_party/jitterentropy");
 
             if !source_path.is_file() {
-                emit_warning(&format!("Not a file: {:?}", source_path.as_os_str()));
+                emit_warning(format!("Not a file: {:?}", source_path.as_os_str()));
                 continue;
             }
             if is_s2n_bignum {
@@ -482,7 +491,7 @@ impl CcBuilder {
                     if compiler_features.contains(compiler_feature) {
                         s2n_bignum_builder.file(source_path);
                     } else {
-                        emit_warning(&format!(
+                        emit_warning(format!(
                             "Skipping due to missing compiler features: {:?}",
                             source_path.as_os_str()
                         ));
@@ -547,7 +556,7 @@ impl CcBuilder {
         if !source_file.exists() {
             emit_warning("######");
             emit_warning("###### WARNING: MISSING GIT SUBMODULE ######");
-            emit_warning(&format!(
+            emit_warning(format!(
                 "  -- Did you initialize the repo's git submodules? Unable to find source file: {}.",
                 source_file.display()
             ));
@@ -575,9 +584,9 @@ impl CcBuilder {
             ret_val = true;
         }
         if fs::remove_dir_all(&output_dir).is_err() {
-            emit_warning(&format!("Failed to remove {}", output_dir.display()));
+            emit_warning(format!("Failed to remove {}", output_dir.display()));
         }
-        emit_warning(&format!(
+        emit_warning(format!(
             "Compilation of '{basename}.c' {} - {:?}.",
             if ret_val { "succeeded" } else { "failed" },
             &result

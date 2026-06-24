@@ -12,6 +12,7 @@ use crate::{
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 pub(crate) struct CmakeBuilder {
     manifest_dir: PathBuf,
@@ -31,10 +32,7 @@ fn test_prebuilt_nasm_script(script_path: &Path) -> bool {
 
 fn find_cmake_command() -> Option<OsString> {
     if let Some(cmake) = optional_env_optional_crate_target("CMAKE") {
-        emit_warning(&format!(
-            "CMAKE environment variable set: {}",
-            cmake.clone()
-        ));
+        emit_warning(format!("CMAKE environment variable set: {}", cmake.clone()));
         if execute_command(cmake.as_ref(), &["--version".as_ref()]).status {
             Some(cmake.into())
         } else {
@@ -167,12 +165,29 @@ impl CmakeBuilder {
         // are disabled.
         Self::preserve_cflag_optimization_flags(&mut cmake_cfg);
 
-        // Allow environment to specify CMake toolchain.
-        if let Some(toolchain) = optional_env_optional_crate_target("CMAKE_TOOLCHAIN_FILE") {
-            set_env_for_target("CMAKE_TOOLCHAIN_FILE", toolchain);
+        if target_os() == "windows" {
             if use_prebuilt_nasm() {
                 self.configure_prebuilt_nasm(&mut cmake_cfg);
             }
+            if target_env().as_str() == "msvc" {
+                let mut msvcrt = String::from_str("MultiThreaded").unwrap();
+                if is_crt_static() {
+                    cmake_cfg.static_crt(true);
+                    // When using static CRT on Windows MSVC, ignore missing PDB file warnings
+                    // The static CRT libraries reference PDB files from Microsoft's build servers
+                    // which are not available.
+                    println!("cargo:rustc-link-arg=/ignore:4099");
+                } else {
+                    msvcrt.push_str("DLL");
+                }
+                cmake_cfg.define("CMAKE_MSVC_RUNTIME_LIBRARY", msvcrt.as_str());
+            }
+        }
+
+        // Allow environment to specify CMake toolchain.
+        if let Some(toolchain) = optional_env_optional_crate_target("CMAKE_TOOLCHAIN_FILE") {
+            set_env_for_target("CMAKE_TOOLCHAIN_FILE", toolchain);
+
             return cmake_cfg;
         }
         // We only consider compiler CFLAGS when no cmake toolchain is set
@@ -229,7 +244,7 @@ impl CmakeBuilder {
             let split = cflags.split_whitespace();
             for arg in split {
                 if arg.starts_with("-O") || arg.starts_with("/O") {
-                    emit_warning(&format!("Preserving optimization flag: {arg}"));
+                    emit_warning(format!("Preserving optimization flag: {arg}"));
                     cmake_cfg.cflag(arg);
                 }
             }
@@ -258,7 +273,7 @@ impl CmakeBuilder {
                 sh_script
             };
             emit_warning(
-                &format!(
+                format!(
                     "Neither script could be tested for execution, falling back to target-based selection: {}",
                     fallback_script.file_name().unwrap().to_str().unwrap()));
             fallback_script
@@ -289,6 +304,7 @@ impl CmakeBuilder {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn configure_windows(&self, cmake_cfg: &mut cmake::Config) {
         match (target_env().as_str(), target_arch().as_str()) {
             ("msvc", "aarch64") => {
@@ -306,20 +322,16 @@ impl CmakeBuilder {
                     ));
                     cmake_cfg.define("CMAKE_GENERATOR_PLATFORM", "ARM64");
                 }
-                cmake_cfg.static_crt(is_crt_static());
                 cmake_cfg.define("CMAKE_SYSTEM_NAME", "Windows");
                 cmake_cfg.define("CMAKE_SYSTEM_PROCESSOR", "ARM64");
             }
             ("msvc", _) => {
-                cmake_cfg.static_crt(is_crt_static());
+                // No-op
             }
             (_, arch) => {
                 cmake_cfg.define("CMAKE_SYSTEM_NAME", "Windows");
                 cmake_cfg.define("CMAKE_SYSTEM_PROCESSOR", arch);
             }
-        }
-        if use_prebuilt_nasm() {
-            self.configure_prebuilt_nasm(cmake_cfg);
         }
     }
 
