@@ -61,11 +61,11 @@ jobs:
       - name: Set Rust toolchain override
         run: rustup override set ${{ steps.toolchain.outputs.name }}
       - name: Install cargo-download
-        run: cargo install cargo-download
+        run: cargo install cargo-download cargo-show
       - name: Run rustls integration
         working-directory: ./aws-lc-rs
         run: |
-          ./scripts/run-rustls-integration.sh ${{ matrix.latest == 1 && '--latest-release' }}
+          ./scripts/run-rustls-integration.sh ${{ matrix.latest == 1 && '--latest-release' }} --cleanup
 
   windows-debug-crt-static-test:
     if: github.repository_owner == 'aws'
@@ -344,6 +344,7 @@ jobs:
       - name: Update dependencies
         run: |
           cargo +1.70.0 update
+          cargo +1.70.0 update -p libloading --precise 0.8.8
           cargo +1.70.0 tree
 
       - name: Verify msrv
