@@ -219,6 +219,11 @@ impl CcBuilder {
             }
         }
 
+        if target_os() == "macos" || target_os() == "darwin" {
+            // Certain MacOS system headers are guarded by _POSIX_C_SOURCE and _DARWIN_C_SOURCE
+            build_options.push(BuildOption::define("_DARWIN_C_SOURCE", "1"));
+        }
+
         let opt_level = cargo_env("OPT_LEVEL");
         match opt_level.as_str() {
             "0" | "1" | "2" => {
@@ -348,14 +353,15 @@ impl CcBuilder {
     }
 
     pub fn prepare_builder(&self) -> cc::Build {
+        let cflags = get_crate_cflags();
+        if !cflags.is_empty() {
+            set_env_for_target("CFLAGS", cflags);
+        }
+
         let mut cc_build = self.create_builder();
         let (_, build_options) = self.collect_universal_build_options(&cc_build);
         for option in build_options {
             option.apply_cc(&mut cc_build);
-        }
-        let cflags = get_crate_cflags();
-        if !cflags.is_empty() {
-            set_env_for_target("CFLAGS", cflags);
         }
 
         // Add --noexecstack flag for assembly files to prevent executable stacks
@@ -405,6 +411,10 @@ impl CcBuilder {
         };
 
         je_builder.define("AWSLC", "1");
+        if target_os() == "macos" || target_os() == "darwin" {
+            // Certain MacOS system headers are guarded by _POSIX_C_SOURCE and _DARWIN_C_SOURCE
+            je_builder.define("_DARWIN_C_SOURCE", "1");
+        }
         je_builder.pic(true);
         if target_os() == "windows" && compiler.is_like_msvc() {
             je_builder.flag("/Od").flag("/W4").flag("/DYNAMICBASE");
