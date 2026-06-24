@@ -339,8 +339,8 @@ impl CcBuilder {
 
         // s2n_bignum is compiled separately due to needing extra flags
         let mut s2n_bignum_builder = cc_build.clone();
-        s2n_bignum_builder.flag(format!(
-            "--include={}",
+        s2n_bignum_builder.flag("-include").flag(format!(
+            "{}",
             self.manifest_dir
                 .join("generated-include")
                 .join("openssl")
