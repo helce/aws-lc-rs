@@ -122,6 +122,7 @@ jobs:
         run: cargo test ${{ matrix.args }}
 
   aws-lc-rs-coverage:
+    if:  github.event_name == 'pull_request'
     name: aws-ls-rs coverage
     runs-on: ubuntu-latest
     steps:
@@ -239,6 +240,45 @@ jobs:
       - name: Run cargo test w/ AWS_LC_SYS_PREBUILT_NASM=1
         shell: bash
         run: AWS_LC_SYS_PREBUILT_NASM=1 cargo test --tests -p aws-lc-rs --release --no-default-features --features aws-lc-sys
+
+  disable-prebuilt-nasm-test:
+    if: github.repository_owner == 'aws'
+    name: disable-prebuilt-nasm
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - 'x86_64-pc-windows-msvc'
+          - 'x86_64-pc-windows-gnu'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Remove NASM
+        shell: bash
+        run: |
+          rm -f `which nasm`
+      - name: Verify NASM not available
+        shell: bash
+        run: |
+          if nasm --version; then
+            echo `which nasm`
+            exit 1
+          else
+            exit 0;
+          fi
+      - name: Verify build fails w/ disable-prebuilt-nasm feature
+        shell: bash
+        run: |
+          if cargo build -p aws-lc-rs --release --no-default-features --features aws-lc-sys,aws-lc-sys/disable-prebuilt-nasm; then
+            echo "Build unexpectedly succeeded"
+            exit 1
+          else
+            echo "Build failed as expected"
+            exit 0
+          fi
 
   build-env-nasm-test:
     if: github.repository_owner == 'aws'
@@ -564,6 +604,9 @@ jobs:
       - name: Run cargo test
         working-directory: "path has spaces/aws-lc-rs"
         run: cargo test --tests -p aws-lc-rs --no-default-features --features ${{ (matrix.fips == 1 && 'fips') || 'aws-lc-sys' }}
+      - name: Run cargo test release build
+        working-directory: "path has spaces/aws-lc-rs"
+        run: cargo test --tests --release -p aws-lc-rs --no-default-features --features ${{ (matrix.fips == 1 && 'fips') || 'aws-lc-sys' }}
 
   cmake-source-path-has-spaces:
     if: github.repository_owner == 'aws'
@@ -606,6 +649,9 @@ jobs:
       - name: Run cargo test
         working-directory: "path has spaces/aws-lc-rs"
         run: cargo test --tests -p aws-lc-rs --features bindgen
+      - name: Run cargo release test
+        working-directory: "path has spaces/aws-lc-rs"
+        run: cargo test --release --tests -p aws-lc-rs --features bindgen
 
   hostile-environment:
     if: github.repository_owner == 'aws'
@@ -653,3 +699,63 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
         run: cargo test -p aws-lc-rs --all-targets
+
+  build-env-no-u1-bindings-test:
+    if: github.repository_owner == 'aws'
+    name: aws-lc-rs build-env-no-u1-bindings-test
+    runs-on: ${{ matrix.os }}
+    env:
+      AWS_LC_SYS_NO_U1_BINDINGS: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-15-intel, macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - if: ${{ matrix.os == 'windows-latest' }}
+        uses: ilammy/setup-nasm@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Remove other universal bindings
+        shell: bash
+        run: |
+          rm ./aws-lc-sys/src/universal_crypto.rs
+          rm ./aws-lc-sys/src/universal_prefixed_crypto.rs
+      - name: Run cargo test
+        run: cargo test -p aws-lc-rs --no-default-features --features aws-lc-sys --tests
+
+  cranelift-backend-test:
+    if: github.repository_owner == 'aws'
+    name: aws-lc-rs cranelift-backend-test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    env:
+      # Cranelift requires panic=abort as it doesn't fully support unwinding.
+      # -Zpanic_abort_tests is required to run tests with panic=abort.
+      RUSTFLAGS: -Zcodegen-backend=cranelift -Cpanic=abort -Zpanic_abort_tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@master
+        id: toolchain
+        with:
+          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
+          components: rustc-codegen-cranelift-preview
+      - name: Set Rust toolchain override
+        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Remove other universal bindings
+        shell: bash
+        run: |
+          rm ./aws-lc-sys/src/universal_crypto.rs
+          rm ./aws-lc-sys/src/universal_prefixed_crypto.rs
+      - name: Run cargo test
+        run: cargo test -p aws-lc-rs --no-default-features --features aws-lc-sys --all-targets
