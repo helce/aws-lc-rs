@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 #![cfg(all(not(feature = "fips"), feature = "unstable"))]
 
-use aws_lc_rs::signature::{KeyPair, VerificationAlgorithm};
+use aws_lc_rs::signature::{KeyPair, ParsedPublicKey, VerificationAlgorithm};
 use aws_lc_rs::unstable::signature::{
-    PqdsaKeyPair, MLDSA_44, MLDSA_44_SIGNING, MLDSA_65, MLDSA_65_SIGNING, MLDSA_87,
-    MLDSA_87_SIGNING,
+    PqdsaKeyPair, ML_DSA_44, ML_DSA_44_SIGNING, ML_DSA_65, ML_DSA_65_SIGNING, ML_DSA_87,
+    ML_DSA_87_SIGNING,
 };
 use aws_lc_rs::{test, test_file};
 
@@ -44,6 +44,38 @@ macro_rules! mldsa_sigver_test {
                 assert!(result.is_err());
             }
 
+            let ppk = ParsedPublicKey::new($verification, public_key.as_slice()).unwrap();
+            let result = ppk.verify_sig(message.as_ref(), signature.as_ref());
+            if expected_result {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+            Ok(())
+        });
+    };
+}
+
+macro_rules! mldsa_sigver_digest_test {
+    ($file:literal, $verification:expr) => {
+        test::run(test_file!($file), |section, test_case| {
+            assert_eq!(section, "");
+            let public_key = test_case.consume_bytes("PUBLIC");
+            let message = test_case.consume_bytes("MESSAGE");
+            let signature = test_case.consume_bytes("SIGNATURE");
+            let _context = test_case.consume_bytes("CONTEXT");
+            let _expected_result = test_case.consume_bool("RESULT");
+
+            // For code coverage
+            let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, message.as_ref());
+            let result =
+                $verification.verify_digest_sig(public_key.as_ref(), &digest, signature.as_ref());
+            assert!(result.is_err());
+
+            let ppk = ParsedPublicKey::new($verification, public_key.as_slice()).unwrap();
+            let result = ppk.verify_digest_sig(&digest, signature.as_ref());
+            assert!(result.is_err());
+
             Ok(())
         });
     };
@@ -51,30 +83,36 @@ macro_rules! mldsa_sigver_test {
 
 #[test]
 fn mldsa_44_keygen_test() {
-    mldsa_keygen_test!("data/MLDSA_44_ACVP_keyGen.txt", &MLDSA_44_SIGNING);
+    mldsa_keygen_test!("data/MLDSA_44_ACVP_keyGen.txt", &ML_DSA_44_SIGNING);
 }
 
 #[test]
 fn mldsa_65_keygen_test() {
-    mldsa_keygen_test!("data/MLDSA_65_ACVP_keyGen.txt", &MLDSA_65_SIGNING);
+    mldsa_keygen_test!("data/MLDSA_65_ACVP_keyGen.txt", &ML_DSA_65_SIGNING);
 }
 
 #[test]
 fn mldsa_87_keygen_test() {
-    mldsa_keygen_test!("data/MLDSA_87_ACVP_keyGen.txt", &MLDSA_87_SIGNING);
+    mldsa_keygen_test!("data/MLDSA_87_ACVP_keyGen.txt", &ML_DSA_87_SIGNING);
 }
 
 #[test]
 fn mldsa_44_sigver_test() {
-    mldsa_sigver_test!("data/MLDSA_44_sigVer.txt", &MLDSA_44);
+    mldsa_sigver_test!("data/MLDSA_44_sigVer.txt", &ML_DSA_44);
 }
 
 #[test]
 fn mldsa_65_sigver_test() {
-    mldsa_sigver_test!("data/MLDSA_65_sigVer.txt", &MLDSA_65);
+    mldsa_sigver_test!("data/MLDSA_65_sigVer.txt", &ML_DSA_65);
 }
 
 #[test]
 fn mldsa_87_sigver_test() {
-    mldsa_sigver_test!("data/MLDSA_87_sigVer.txt", &MLDSA_87);
+    mldsa_sigver_test!("data/MLDSA_87_sigVer.txt", &ML_DSA_87);
+}
+
+#[test]
+// For code coverage
+fn mldsa_44_sigver_digest_test() {
+    mldsa_sigver_digest_test!("data/MLDSA_44_sigVer.txt", &ML_DSA_44);
 }

@@ -17,6 +17,7 @@ env:
   # We can pin the version if nightly is too unstable.
   # Otherwise, we test against the latest version.
   RUST_NIGHTLY_TOOLCHAIN: nightly
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   aws-lc-rs-cross-test:
@@ -75,9 +76,15 @@ jobs:
         run: |
           echo 'AWS_LC_SYS_EXTERNAL_BINDGEN=0' >> "$GITHUB_ENV"
       - if: ${{ matrix.target[0] == 'x86_64-unknown-illumos' }}
-        # TODO: Restructure the build options
         run: |
           echo 'CROSS_TEST_EXTRA_FLAG=--no-run' >> "$GITHUB_ENV"
+      - if: ${{ matrix.target[0] != 'x86_64-unknown-illumos' }}
+        # Since Rust 1.89, doctests run by default.
+        # When cross-compiling, doctests do not have the environment setup properly to link to shared libraries.
+        # Per documentation:
+        #       --all-targets       Test all targets (does not include doctests)
+        run: |
+          echo 'CROSS_TEST_EXTRA_FLAG=--all-targets' >> "$GITHUB_ENV"
       - name: Cross-compilation (test release)
         run: cross test -p aws-lc-rs --release "${CROSS_TEST_EXTRA_FLAG}" --features unstable --target ${{ matrix.target[0] }}
       - if: ${{ matrix.target[1] == 1 }}
@@ -93,6 +100,39 @@ jobs:
         run: |
           unset AWS_LC_SYS_EXTERNAL_BINDGEN
           cross test -p aws-lc-sys --release "${CROSS_TEST_EXTRA_FLAG}" --features ssl --target ${{ matrix.target[0] }}
+
+  aws-lc-rs-cross-prebuilt-nasm:
+    if: github.repository_owner == 'aws'
+    name: cross prebuilt-NASM - ${{ matrix.target[0] }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_LC_SYS_PREBUILT_NASM: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - [ x86_64-pc-windows-gnu, 0, 1 ]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "recursive"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "stable"
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - uses: dtolnay/rust-toolchain@master
+        id: toolchain
+        with:
+          toolchain: "stable"
+          target: ${{ matrix.target[0] }}
+      - name: Set Rust toolchain override
+        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - if: ${{ !startsWith(matrix.target[0], 'x86_64') }}
+        run: |
+          echo 'AWS_LC_RS_DISABLE_SLOW_TESTS=1' >> "$GITHUB_ENV"
+      - name: Cross-compilation (test release)
+        run: CROSS_CONFIG=$(pwd)/Cross.toml.passthrough-only cross test -p aws-lc-rs --no-run --features unstable --target ${{ matrix.target[0] }}
 
   aws-lc-rs-cross-0_2_5-test:
     if: github.repository_owner == 'aws'
@@ -134,6 +174,9 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: "recursive"
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '>=1.18'
       - run: |
           brew install llvm
       - uses: dtolnay/rust-toolchain@master
@@ -145,6 +188,27 @@ jobs:
         run: brew install bash
       - name: iOS Simulator Runner
         run: ./scripts/ci/ios-simulator-runner.sh
+
+  aws-lc-rs-tvos-aarch64:
+    if: github.repository_owner == 'aws'
+    name: tvOS aarch64 cross-platform build
+    runs-on: macos-latest
+    env:
+      TVOS_FORCE_TEST: 1
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "recursive"
+      - run: |
+          brew install llvm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Install bash, coreutils
+        run: brew install bash coreutils
+      - name: tvOS Simulator Runner
+        run: ./scripts/ci/tvos-simulator-runner.sh
 
   aws-lc-rs-ios-x86_64:
     if: github.repository_owner == 'aws'
