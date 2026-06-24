@@ -9,14 +9,15 @@ mod aarch64_apple_darwin;
 mod aarch64_unknown_linux_gnu;
 mod aarch64_unknown_linux_musl;
 mod i686_unknown_linux_gnu;
+mod riscv64gc_unknown_linux_gnu;
 mod x86_64_apple_darwin;
 mod x86_64_unknown_linux_gnu;
 mod x86_64_unknown_linux_musl;
 
 use crate::{
     cargo_env, effective_target, emit_warning, env_var_to_bool, execute_command, get_crate_cflags,
-    is_no_asm, option_env, out_dir, requested_c_std, target, target_arch, target_env, target_os,
-    target_vendor, CStdRequested, OutputLibType,
+    is_no_asm, optional_env_optional_crate_target, out_dir, requested_c_std, set_env_for_target,
+    target, target_arch, target_env, target_os, target_vendor, CStdRequested, OutputLibType,
 };
 use std::path::PathBuf;
 
@@ -27,7 +28,7 @@ pub(crate) struct CcBuilder {
     output_lib_type: OutputLibType,
 }
 
-use std::{env, fs};
+use std::fs;
 
 pub(crate) struct Library {
     name: &'static str,
@@ -40,6 +41,7 @@ enum PlatformConfig {
     aarch64_apple_darwin,
     aarch64_unknown_linux_gnu,
     aarch64_unknown_linux_musl,
+    riscv64gc_unknown_linux_gnu,
     x86_64_apple_darwin,
     x86_64_unknown_linux_gnu,
     x86_64_unknown_linux_musl,
@@ -54,6 +56,9 @@ impl PlatformConfig {
             PlatformConfig::aarch64_unknown_linux_musl => {
                 aarch64_unknown_linux_musl::CRYPTO_LIBRARY
             }
+            PlatformConfig::riscv64gc_unknown_linux_gnu => {
+                riscv64gc_unknown_linux_gnu::CRYPTO_LIBRARY
+            }
             PlatformConfig::x86_64_apple_darwin => x86_64_apple_darwin::CRYPTO_LIBRARY,
             PlatformConfig::x86_64_unknown_linux_gnu => x86_64_unknown_linux_gnu::CRYPTO_LIBRARY,
             PlatformConfig::x86_64_unknown_linux_musl => x86_64_unknown_linux_musl::CRYPTO_LIBRARY,
@@ -67,6 +72,7 @@ impl PlatformConfig {
             "aarch64-apple-darwin" => Some(PlatformConfig::aarch64_apple_darwin),
             "aarch64-unknown-linux-gnu" => Some(PlatformConfig::aarch64_unknown_linux_gnu),
             "aarch64-unknown-linux-musl" => Some(PlatformConfig::aarch64_unknown_linux_musl),
+            "riscv64gc-unknown-linux-gnu" => Some(PlatformConfig::riscv64gc_unknown_linux_gnu),
             "x86_64-apple-darwin" => Some(PlatformConfig::x86_64_apple_darwin),
             "x86_64-unknown-linux-gnu" => Some(PlatformConfig::x86_64_unknown_linux_gnu),
             "x86_64-unknown-linux-musl" => Some(PlatformConfig::x86_64_unknown_linux_musl),
@@ -189,11 +195,11 @@ impl CcBuilder {
             }
         }
 
-        if let Some(cc) = option_env("CC") {
-            emit_warning(&format!("CC environment variable set: {}", cc.clone()));
+        if let Some(cc) = optional_env_optional_crate_target("CC") {
+            set_env_for_target("CC", &cc);
         }
-        if let Some(cxx) = option_env("CXX") {
-            emit_warning(&format!("CXX environment variable set: {}", cxx.clone()));
+        if let Some(cxx) = optional_env_optional_crate_target("CXX") {
+            set_env_for_target("CC", &cxx);
         }
 
         if target_arch() == "x86" && !compiler_is_msvc {
@@ -325,10 +331,7 @@ impl CcBuilder {
         }
         let cflags = get_crate_cflags();
         if !cflags.is_empty() {
-            emit_warning(&format!(
-                "AWS_LC_SYS_CFLAGS found. Setting CFLAGS: '{cflags}'"
-            ));
-            env::set_var("CFLAGS", cflags);
+            set_env_for_target("CFLAGS", cflags);
         }
         cc_build
     }
