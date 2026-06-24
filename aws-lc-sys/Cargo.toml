@@ -1,8 +1,8 @@
 [package]
 name = "aws-lc-sys"
 description = "AWS-LC is a general-purpose cryptographic library maintained by the AWS Cryptography team for AWS and their customers. It іs based on code from the Google BoringSSL project and the OpenSSL project."
-version = "0.26.0"
-links = "aws_lc_0_26_0"
+version = "0.27.0"
+links = "aws_lc_0_27_0"
 authors = ["AWS-LC"]
 edition = "2021"
 repository = "https://github.com/aws/aws-lc-rs"
@@ -32,6 +32,8 @@ include = [
     "/aws-lc/third_party/fiat/**/*.h",
     "/aws-lc/third_party/s2n-bignum/**/*.S",
     "/aws-lc/third_party/s2n-bignum/**/*.h",
+    "/aws-lc/third_party/jitterentropy/**/*.c",
+    "/aws-lc/third_party/jitterentropy/**/*.h",
     "/aws-lc/util/fipstools/**/CMakeLists.txt",
     "/aws-lc/util/fipstools/**/*.c",
     "/CMakeLists.txt",
@@ -65,8 +67,5 @@ bindgen = { version = "0.69.5", optional = true }
 [target.'cfg(not(any(all(any(target_arch="x86_64",target_arch="aarch64"),any(target_os="linux",target_os="macos",target_os="windows"),any(target_env="gnu",target_env="musl",target_env="msvc",target_env="")),all(target_arch="x86",target_os="windows",target_env="msvc"),all(target_arch="x86",target_os="linux",target_env="gnu"))))'.build-dependencies]
 bindgen = { version = "0.69.5" }
 
-[dependencies]
-paste = "1.0.11"
-
 [package.metadata.aws-lc-sys]
-commit-hash = "5cdc082bd86ffb4539e53444d7806a128ace77f3"
+commit-hash = "7bca7e96fab19e4857b70082fa4c759ff0119e12"

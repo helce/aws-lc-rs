@@ -35,7 +35,8 @@ include = [
     "/aws-lc/third_party/fiat/**/*.h",
     "/aws-lc/third_party/s2n-bignum/**/*.S",
     "/aws-lc/third_party/s2n-bignum/**/*.h",
-    "/aws-lc/third_party/jitterentropy/**",
+    "/aws-lc/third_party/jitterentropy/**/*.c",
+    "/aws-lc/third_party/jitterentropy/**/*.h",
     "/aws-lc/util/fipstools/**/CMakeLists.txt",
     "/aws-lc/util/fipstools/**/*.c",
     "/aws-lc/util/fipstools/**/*.cc",
@@ -73,9 +74,6 @@ bindgen = { version = "0.69.5", optional = true }
 
 [target.'cfg(not(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos"), any(target_env = "gnu", target_env = "musl", target_env = ""))))'.build-dependencies]
 bindgen = { version = "0.69.5" }
-
-[dependencies]
-paste = "1.0.11"
 
 [dev-dependencies]
 # Pinned dependency to preserve MSRV: 1.60.0  <= rust-version < 1.65.0

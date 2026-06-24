@@ -17,7 +17,7 @@
 %define BORINGSSL_PREFIX_SYMBOLS_NASM_INC
 
 %ifndef BORINGSSL_PREFIX
-%define BORINGSSL_PREFIX aws_lc_0_26_0
+%define BORINGSSL_PREFIX aws_lc_0_27_0
 %endif ; BORINGSSL_PREFIX
 
 ; 32-bit Windows adds underscores to C functions, while 64-bit Windows does not.
@@ -223,6 +223,7 @@
 %xdefine _AWSLC_non_fips_pkey_evp_methods _ %+ BORINGSSL_PREFIX %+ _AWSLC_non_fips_pkey_evp_methods
 %xdefine _AWSLC_thread_local_clear _ %+ BORINGSSL_PREFIX %+ _AWSLC_thread_local_clear
 %xdefine _AWSLC_thread_local_shutdown _ %+ BORINGSSL_PREFIX %+ _AWSLC_thread_local_shutdown
+%xdefine _AWS_LC_FIPS_failure _ %+ BORINGSSL_PREFIX %+ _AWS_LC_FIPS_failure
 %xdefine _BASIC_CONSTRAINTS_free _ %+ BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_free
 %xdefine _BASIC_CONSTRAINTS_it _ %+ BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_it
 %xdefine _BASIC_CONSTRAINTS_new _ %+ BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_new
@@ -417,6 +418,7 @@
 %xdefine _BN_gcd _ %+ BORINGSSL_PREFIX %+ _BN_gcd
 %xdefine _BN_generate_prime_ex _ %+ BORINGSSL_PREFIX %+ _BN_generate_prime_ex
 %xdefine _BN_get_flags _ %+ BORINGSSL_PREFIX %+ _BN_get_flags
+%xdefine _BN_get_minimal_width _ %+ BORINGSSL_PREFIX %+ _BN_get_minimal_width
 %xdefine _BN_get_rfc3526_prime_1536 _ %+ BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_1536
 %xdefine _BN_get_rfc3526_prime_2048 _ %+ BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_2048
 %xdefine _BN_get_rfc3526_prime_3072 _ %+ BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_3072
@@ -987,6 +989,7 @@
 %xdefine _ED25519_check_public_key _ %+ BORINGSSL_PREFIX %+ _ED25519_check_public_key
 %xdefine _ED25519_keypair _ %+ BORINGSSL_PREFIX %+ _ED25519_keypair
 %xdefine _ED25519_keypair_from_seed _ %+ BORINGSSL_PREFIX %+ _ED25519_keypair_from_seed
+%xdefine _ED25519_keypair_internal _ %+ BORINGSSL_PREFIX %+ _ED25519_keypair_internal
 %xdefine _ED25519_sign _ %+ BORINGSSL_PREFIX %+ _ED25519_sign
 %xdefine _ED25519_sign_no_self_test _ %+ BORINGSSL_PREFIX %+ _ED25519_sign_no_self_test
 %xdefine _ED25519_verify _ %+ BORINGSSL_PREFIX %+ _ED25519_verify
@@ -1129,6 +1132,7 @@
 %xdefine _EVP_DigestSignFinal _ %+ BORINGSSL_PREFIX %+ _EVP_DigestSignFinal
 %xdefine _EVP_DigestSignInit _ %+ BORINGSSL_PREFIX %+ _EVP_DigestSignInit
 %xdefine _EVP_DigestSignUpdate _ %+ BORINGSSL_PREFIX %+ _EVP_DigestSignUpdate
+%xdefine _EVP_DigestSqueeze _ %+ BORINGSSL_PREFIX %+ _EVP_DigestSqueeze
 %xdefine _EVP_DigestUpdate _ %+ BORINGSSL_PREFIX %+ _EVP_DigestUpdate
 %xdefine _EVP_DigestVerify _ %+ BORINGSSL_PREFIX %+ _EVP_DigestVerify
 %xdefine _EVP_DigestVerifyFinal _ %+ BORINGSSL_PREFIX %+ _EVP_DigestVerifyFinal
@@ -1287,6 +1291,7 @@
 %xdefine _EVP_PKEY_derive_set_peer _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_derive_set_peer
 %xdefine _EVP_PKEY_ec_pkey_meth _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_ec_pkey_meth
 %xdefine _EVP_PKEY_ed25519_pkey_meth _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_ed25519_pkey_meth
+%xdefine _EVP_PKEY_ed25519ph_pkey_meth _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_ed25519ph_pkey_meth
 %xdefine _EVP_PKEY_encapsulate _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_encapsulate
 %xdefine _EVP_PKEY_encapsulate_deterministic _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_encapsulate_deterministic
 %xdefine _EVP_PKEY_encrypt _ %+ BORINGSSL_PREFIX %+ _EVP_PKEY_encrypt
@@ -2575,6 +2580,7 @@
 %xdefine _X509_STORE_set_verify_cb _ %+ BORINGSSL_PREFIX %+ _X509_STORE_set_verify_cb
 %xdefine _X509_STORE_unlock _ %+ BORINGSSL_PREFIX %+ _X509_STORE_unlock
 %xdefine _X509_STORE_up_ref _ %+ BORINGSSL_PREFIX %+ _X509_STORE_up_ref
+%xdefine _X509_TRUST_cleanup _ %+ BORINGSSL_PREFIX %+ _X509_TRUST_cleanup
 %xdefine _X509_TRUST_get0 _ %+ BORINGSSL_PREFIX %+ _X509_TRUST_get0
 %xdefine _X509_TRUST_get0_name _ %+ BORINGSSL_PREFIX %+ _X509_TRUST_get0_name
 %xdefine _X509_TRUST_get_by_id _ %+ BORINGSSL_PREFIX %+ _X509_TRUST_get_by_id
@@ -3410,7 +3416,6 @@
 %xdefine _ed25519_verify_nohw _ %+ BORINGSSL_PREFIX %+ _ed25519_verify_nohw
 %xdefine _ed25519_verify_s2n_bignum _ %+ BORINGSSL_PREFIX %+ _ed25519_verify_s2n_bignum
 %xdefine _ed25519ph_asn1_meth _ %+ BORINGSSL_PREFIX %+ _ed25519ph_asn1_meth
-%xdefine _ed25519ph_pkey_meth _ %+ BORINGSSL_PREFIX %+ _ed25519ph_pkey_meth
 %xdefine _evp_pkey_set_cb_translate _ %+ BORINGSSL_PREFIX %+ _evp_pkey_set_cb_translate
 %xdefine _evp_pkey_set_method _ %+ BORINGSSL_PREFIX %+ _evp_pkey_set_method
 %xdefine _extract_multiplier_2x20_win5 _ %+ BORINGSSL_PREFIX %+ _extract_multiplier_2x20_win5
@@ -4332,6 +4337,7 @@
 %xdefine AWSLC_non_fips_pkey_evp_methods BORINGSSL_PREFIX %+ _AWSLC_non_fips_pkey_evp_methods
 %xdefine AWSLC_thread_local_clear BORINGSSL_PREFIX %+ _AWSLC_thread_local_clear
 %xdefine AWSLC_thread_local_shutdown BORINGSSL_PREFIX %+ _AWSLC_thread_local_shutdown
+%xdefine AWS_LC_FIPS_failure BORINGSSL_PREFIX %+ _AWS_LC_FIPS_failure
 %xdefine BASIC_CONSTRAINTS_free BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_free
 %xdefine BASIC_CONSTRAINTS_it BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_it
 %xdefine BASIC_CONSTRAINTS_new BORINGSSL_PREFIX %+ _BASIC_CONSTRAINTS_new
@@ -4526,6 +4532,7 @@
 %xdefine BN_gcd BORINGSSL_PREFIX %+ _BN_gcd
 %xdefine BN_generate_prime_ex BORINGSSL_PREFIX %+ _BN_generate_prime_ex
 %xdefine BN_get_flags BORINGSSL_PREFIX %+ _BN_get_flags
+%xdefine BN_get_minimal_width BORINGSSL_PREFIX %+ _BN_get_minimal_width
 %xdefine BN_get_rfc3526_prime_1536 BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_1536
 %xdefine BN_get_rfc3526_prime_2048 BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_2048
 %xdefine BN_get_rfc3526_prime_3072 BORINGSSL_PREFIX %+ _BN_get_rfc3526_prime_3072
@@ -5096,6 +5103,7 @@
 %xdefine ED25519_check_public_key BORINGSSL_PREFIX %+ _ED25519_check_public_key
 %xdefine ED25519_keypair BORINGSSL_PREFIX %+ _ED25519_keypair
 %xdefine ED25519_keypair_from_seed BORINGSSL_PREFIX %+ _ED25519_keypair_from_seed
+%xdefine ED25519_keypair_internal BORINGSSL_PREFIX %+ _ED25519_keypair_internal
 %xdefine ED25519_sign BORINGSSL_PREFIX %+ _ED25519_sign
 %xdefine ED25519_sign_no_self_test BORINGSSL_PREFIX %+ _ED25519_sign_no_self_test
 %xdefine ED25519_verify BORINGSSL_PREFIX %+ _ED25519_verify
@@ -5238,6 +5246,7 @@
 %xdefine EVP_DigestSignFinal BORINGSSL_PREFIX %+ _EVP_DigestSignFinal
 %xdefine EVP_DigestSignInit BORINGSSL_PREFIX %+ _EVP_DigestSignInit
 %xdefine EVP_DigestSignUpdate BORINGSSL_PREFIX %+ _EVP_DigestSignUpdate
+%xdefine EVP_DigestSqueeze BORINGSSL_PREFIX %+ _EVP_DigestSqueeze
 %xdefine EVP_DigestUpdate BORINGSSL_PREFIX %+ _EVP_DigestUpdate
 %xdefine EVP_DigestVerify BORINGSSL_PREFIX %+ _EVP_DigestVerify
 %xdefine EVP_DigestVerifyFinal BORINGSSL_PREFIX %+ _EVP_DigestVerifyFinal
@@ -5396,6 +5405,7 @@
 %xdefine EVP_PKEY_derive_set_peer BORINGSSL_PREFIX %+ _EVP_PKEY_derive_set_peer
 %xdefine EVP_PKEY_ec_pkey_meth BORINGSSL_PREFIX %+ _EVP_PKEY_ec_pkey_meth
 %xdefine EVP_PKEY_ed25519_pkey_meth BORINGSSL_PREFIX %+ _EVP_PKEY_ed25519_pkey_meth
+%xdefine EVP_PKEY_ed25519ph_pkey_meth BORINGSSL_PREFIX %+ _EVP_PKEY_ed25519ph_pkey_meth
 %xdefine EVP_PKEY_encapsulate BORINGSSL_PREFIX %+ _EVP_PKEY_encapsulate
 %xdefine EVP_PKEY_encapsulate_deterministic BORINGSSL_PREFIX %+ _EVP_PKEY_encapsulate_deterministic
 %xdefine EVP_PKEY_encrypt BORINGSSL_PREFIX %+ _EVP_PKEY_encrypt
@@ -6684,6 +6694,7 @@
 %xdefine X509_STORE_set_verify_cb BORINGSSL_PREFIX %+ _X509_STORE_set_verify_cb
 %xdefine X509_STORE_unlock BORINGSSL_PREFIX %+ _X509_STORE_unlock
 %xdefine X509_STORE_up_ref BORINGSSL_PREFIX %+ _X509_STORE_up_ref
+%xdefine X509_TRUST_cleanup BORINGSSL_PREFIX %+ _X509_TRUST_cleanup
 %xdefine X509_TRUST_get0 BORINGSSL_PREFIX %+ _X509_TRUST_get0
 %xdefine X509_TRUST_get0_name BORINGSSL_PREFIX %+ _X509_TRUST_get0_name
 %xdefine X509_TRUST_get_by_id BORINGSSL_PREFIX %+ _X509_TRUST_get_by_id
@@ -7519,7 +7530,6 @@
 %xdefine ed25519_verify_nohw BORINGSSL_PREFIX %+ _ed25519_verify_nohw
 %xdefine ed25519_verify_s2n_bignum BORINGSSL_PREFIX %+ _ed25519_verify_s2n_bignum
 %xdefine ed25519ph_asn1_meth BORINGSSL_PREFIX %+ _ed25519ph_asn1_meth
-%xdefine ed25519ph_pkey_meth BORINGSSL_PREFIX %+ _ed25519ph_pkey_meth
 %xdefine evp_pkey_set_cb_translate BORINGSSL_PREFIX %+ _evp_pkey_set_cb_translate
 %xdefine evp_pkey_set_method BORINGSSL_PREFIX %+ _evp_pkey_set_method
 %xdefine extract_multiplier_2x20_win5 BORINGSSL_PREFIX %+ _extract_multiplier_2x20_win5
