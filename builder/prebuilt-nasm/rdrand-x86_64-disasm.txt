@@ -1,0 +1,32 @@
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+
+Dump of file rdrand-x86_64.obj
+
+File Type: COFF OBJECT
+
+aws_lc_0_39_0_CRYPTO_rdrand_multiple8:
+  0000000000000000: 48 85 D2           test        rdx,rdx
+  0000000000000003: 0F 84 32 00 00 00  je          L$out
+  0000000000000009: 41 B8 08 00 00 00  mov         r8d,8
+L$loop:
+  000000000000000F: 49 0F C7 F1        rdrand      r9
+  0000000000000013: 0F 83 29 00 00 00  jae         L$err_multiple
+  0000000000000019: 4D 85 C9           test        r9,r9
+  000000000000001C: 0F 84 20 00 00 00  je          L$err_multiple
+  0000000000000022: 49 83 F9 FF        cmp         r9,0FFFFFFFFFFFFFFFFh
+  0000000000000026: 0F 84 16 00 00 00  je          L$err_multiple
+  000000000000002C: 4C 89 09           mov         qword ptr [rcx],r9
+  000000000000002F: 4C 01 C1           add         rcx,r8
+  0000000000000032: 4C 29 C2           sub         rdx,r8
+  0000000000000035: 0F 85 D4 FF FF FF  jne         L$loop
+L$out:
+  000000000000003B: B8 01 00 00 00     mov         eax,1
+  0000000000000040: F3 C3              rep ret
+L$err_multiple:
+  0000000000000042: 48 31 C0           xor         rax,rax
+  0000000000000045: F3 C3              rep ret
+
+  Summary
+
+          47 .text
