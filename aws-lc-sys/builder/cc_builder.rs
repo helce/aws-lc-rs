@@ -113,6 +113,12 @@ impl CcBuilder {
             }
         }
 
+        if compiler.is_like_mcst_lcc() {
+            cc_build
+                .flag("-Wno-deprecated-declarations")
+                .flag("-Wno-error=signed-one-bit-field");
+        }
+
         self.add_includes(&mut cc_build);
 
         cc_build
