@@ -193,7 +193,7 @@ fn optional_env<N: AsRef<str>>(name: N) -> Option<String> {
     let name = name.as_ref();
     println!("cargo:rerun-if-env-changed={name}");
     if let Ok(value) = env::var(name) {
-        emit_warning(format!("Environment Variable found '{name}': '{}'", &value));
+        emit_warning(format!("Environment Variable found '{name}': '{value}'"));
         return Some(value);
     }
     None
@@ -252,7 +252,7 @@ fn parse_to_bool(env_var_value: &str) -> Option<bool> {
         || env_var_value.starts_with("off")
         || env_var_value.starts_with('f')
     {
-        emit_warning(format!("Value: {} is false.", &env_var_value));
+        emit_warning(format!("Value: {env_var_value} is false."));
         return Some(false);
     }
     if env_var_value.starts_with(|c: char| c.is_ascii_digit())
@@ -260,7 +260,7 @@ fn parse_to_bool(env_var_value: &str) -> Option<bool> {
         || env_var_value.starts_with("on")
         || env_var_value.starts_with('t')
     {
-        emit_warning(format!("Value: {} is true.", &env_var_value));
+        emit_warning(format!("Value: {env_var_value} is true."));
         return Some(true);
     }
     None
@@ -760,6 +760,59 @@ fn disable_jitter_entropy() -> Option<bool> {
     unsafe { SYS_NO_JITTER_ENTROPY }
 }
 
+/// Returns true if jitter entropy should be built. This is false when the user
+/// explicitly set `AWS_LC_SYS_NO_JITTER_ENTROPY=1`, or when auto-detection
+/// determined that required headers are unavailable.
+fn should_build_jitter_entropy() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+    // If the user explicitly set the env var, respect it unconditionally.
+    if let Some(val) = disable_jitter_entropy() {
+        return !val;
+    }
+
+    *AVAILABLE.get_or_init(|| {
+        // The current FIPS branch does not include jitter entropy.
+        if is_fips_build() {
+            return true;
+        }
+        // Only Apple targets need the CoreServices header.
+        if target_vendor() != "apple" {
+            return true;
+        }
+        probe_apple_core_services()
+    })
+}
+
+/// Probes whether `CoreServices/CoreServices.h` is available for the current
+/// target toolchain. On Apple targets, jitterentropy requires this header which
+/// is only present when the macOS SDK is installed. When cross-compiling to
+/// Apple targets from non-macOS hosts (e.g., Linux → macOS via cargo-zigbuild),
+/// this header is typically missing.
+fn probe_apple_core_services() -> bool {
+    let probe_dir = out_dir().join("out-apple_core_services_check");
+    let src_dir = probe_dir.join("src");
+    let _ = std::fs::create_dir_all(&src_dir);
+    let source_file = src_dir.join("apple_core_services_check.c");
+    if std::fs::write(&source_file, "#include <CoreServices/CoreServices.h>\n").is_err() {
+        emit_warning("Failed to write CoreServices probe file; assuming available.");
+        return true;
+    }
+
+    let mut cc_build = cc::Build::default();
+    cc_build.file(&source_file).out_dir(&probe_dir);
+    let available = cc_build.try_compile_intermediates().is_ok();
+    let _ = std::fs::remove_dir_all(&probe_dir);
+
+    if !available {
+        emit_warning(
+            "CoreServices/CoreServices.h not available; \
+             automatically disabling CPU jitter entropy.",
+        );
+    }
+    available
+}
+
 fn use_no_u1_bindings() -> Option<bool> {
     unsafe { SYS_NO_U1_BINDINGS }
 }
@@ -929,7 +982,7 @@ fn main() {
 
     let builder = get_builder(&prefix, &manifest_dir, &out_dir());
     emit_warning(format!("Building with: {}", builder.name()));
-    emit_warning(format!("Symbol Prefix: {:?}", &prefix));
+    emit_warning(format!("Symbol Prefix: {prefix:?}"));
 
     builder.check_dependencies().unwrap();
 
@@ -973,7 +1026,7 @@ fn main() {
             emit_warning("###### WARNING: MISSING GIT SUBMODULE ######");
             emit_warning(format!(
                 "  -- Did you initialize the repo's git submodules? Unable to find crypto directory: {}.",
-                &aws_lc_crypto_dir.display()
+                aws_lc_crypto_dir.display()
             ));
             emit_warning("  -- run 'git submodule update --init --recursive' to initialize.");
             emit_warning("######");
@@ -1012,6 +1065,14 @@ fn main() {
         For more information, see the aws-lc-rs User Guide: https://aws.github.io/aws-lc-rs/index.html"
     );
     builder.build().unwrap();
+
+    // MinGW win7 targets use the BCryptGenRandom path (AWSLC_WINDOWS_7_COMPAT),
+    // which requires linking against bcrypt. MinGW ignores the MSVC
+    // `#pragma comment(lib, "bcrypt.lib")` in the source, so we link explicitly.
+    // See: https://github.com/aws/aws-lc/pull/3239
+    if target().contains("-win7-windows-gnu") {
+        println!("cargo:rustc-link-lib=bcrypt");
+    }
 
     println!(
         "cargo:include={}",
