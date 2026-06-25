@@ -14,6 +14,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::{env, fmt};
 
 use cc_builder::CcBuilder;
@@ -476,7 +477,53 @@ fn target_underscored() -> String {
 }
 
 fn out_dir() -> PathBuf {
-    PathBuf::from(cargo_env("OUT_DIR"))
+    let out = PathBuf::from(cargo_env("OUT_DIR"));
+    #[cfg(windows)]
+    let out = to_short_path(&out);
+    out
+}
+
+/// On Windows, convert a path to its 8.3 short form to avoid MAX_PATH (260 char) limits
+/// when cl.exe is invoked with deeply nested source trees (e.g. Bazel runfiles).
+#[cfg(windows)]
+fn to_short_path(path: &Path) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    extern "system" {
+        fn GetShortPathNameW(
+            lpszLongPath: *const u16,
+            lpszShortPath: *mut u16,
+            cchBuffer: u32,
+        ) -> u32;
+    }
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let len = unsafe { GetShortPathNameW(wide.as_ptr(), std::ptr::null_mut(), 0) };
+    if len == 0 {
+        return path.to_path_buf();
+    }
+    let mut buf = vec![0u16; len as usize];
+    let result = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), len) };
+    if result == 0 {
+        return path.to_path_buf();
+    }
+    buf.truncate(result as usize);
+    let short_path = PathBuf::from(std::ffi::OsString::from_wide(&buf));
+
+    const MAX_PATH: usize = 260;
+    let original_len = wide.len() - 1;
+    if original_len >= MAX_PATH && (result as usize) >= MAX_PATH {
+        emit_warning(format!(
+            "Path length ({}) exceeds MAX_PATH ({}) and 8.3 short name conversion was ineffective. \
+             8.3 short names may be disabled on this volume. \
+             See: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/fsutil-8dot3name",
+            original_len, MAX_PATH,
+        ));
+    }
+
+    short_path
 }
 
 fn current_dir() -> PathBuf {
@@ -514,7 +561,7 @@ fn get_builder(prefix: &Option<String>, manifest_dir: &Path, out_dir: &Path) -> 
         };
         builder.check_dependencies().unwrap();
         return builder;
-    } else if is_no_asm() {
+    } else if is_no_asm() || sanitizer().is_some() {
         let builder = cmake_builder_builder();
         builder.check_dependencies().unwrap();
         return builder;
@@ -569,6 +616,7 @@ static mut SYS_EFFECTIVE_TARGET: String = String::new();
 static mut SYS_NO_JITTER_ENTROPY: Option<bool> = None;
 static mut SYS_NO_U1_BINDINGS: Option<bool> = None;
 static mut SYS_INCLUDES: Option<Vec<PathBuf>> = None;
+static mut SYS_SANITIZER: Option<String> = None;
 
 static mut SYS_C_STD: CStdRequested = CStdRequested::None;
 
@@ -588,6 +636,7 @@ fn initialize() {
         SYS_NO_U1_BINDINGS = env_crate_var_to_bool("NO_U1_BINDINGS");
         SYS_INCLUDES =
             optional_env_crate_target("INCLUDES").map(|v| std::env::split_paths(&v).collect());
+        SYS_SANITIZER = optional_env_crate_target("SANITIZER").map(|v| v.to_lowercase());
     }
 
     assert!(
@@ -690,6 +739,11 @@ fn is_no_asm() -> bool {
     unsafe { SYS_NO_ASM }
 }
 
+#[allow(static_mut_refs)]
+fn sanitizer() -> Option<String> {
+    unsafe { SYS_SANITIZER.clone() }
+}
+
 fn is_cmake_builder() -> Option<bool> {
     if is_no_pregenerated_src() {
         Some(true)
@@ -758,8 +812,53 @@ fn test_nasm_command() -> bool {
     status
 }
 
+fn find_clang_cl() -> Option<OsString> {
+    static CACHE: OnceLock<Option<OsString>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            // Check if clang-cl is directly available (e.g., in PATH)
+            if execute_command("clang-cl".as_ref(), &["--version".as_ref()]).status {
+                return Some("clang-cl".into());
+            }
+
+            // Try to find clang-cl in a Visual Studio installation
+            find_clang_cl_in_vs()
+        })
+        .clone()
+}
+
+fn find_clang_cl_in_vs() -> Option<OsString> {
+    // Use the cc crate's VS discovery (which calls vswhere internally) to
+    // locate the VS installation, then look for clang-cl relative to it.
+    let tool = cc::windows_registry::find_tool(&target(), "cl.exe")?;
+    let cl_path = tool.path().to_path_buf();
+
+    // cl.exe lives deep inside the VS installation:
+    //   <VS>/VC/Tools/MSVC/<ver>/bin/<host>/<target>/cl.exe
+    // clang-cl lives at:
+    //   <VS>/VC/Tools/Llvm/<arch>/bin/clang-cl.exe
+    // Walk up from cl.exe until we find the VS root.
+    for ancestor in cl_path.ancestors() {
+        let vc_llvm = ancestor.join("VC").join("Tools").join("Llvm");
+        if vc_llvm.exists() {
+            for arch_dir in &["ARM64", "x64"] {
+                let clang_cl = vc_llvm.join(arch_dir).join("bin").join("clang-cl.exe");
+                if clang_cl.exists()
+                    && execute_command(clang_cl.as_os_str(), &["--version".as_ref()]).status
+                {
+                    emit_warning(format!("Found clang-cl at: {}", clang_cl.display()));
+                    return Some(clang_cl.into_os_string());
+                }
+            }
+            break;
+        }
+    }
+
+    None
+}
+
 fn test_clang_cl_command() -> bool {
-    execute_command("clang-cl".as_ref(), &["--version".as_ref()]).status
+    find_clang_cl().is_some()
 }
 
 fn prepare_cargo_cfg() {
@@ -812,19 +911,21 @@ fn handle_bindgen(_manifest_dir: &Path, _prefix: &Option<String>) -> bool {
     false
 }
 
+fn canonicalized_manifest_dir() -> PathBuf {
+    let manifest_dir = current_dir();
+    let manifest_dir = dunce::canonicalize(Path::new(&manifest_dir)).unwrap();
+    #[cfg(windows)]
+    let manifest_dir = to_short_path(&manifest_dir);
+    manifest_dir
+}
+
 #[cfg(not(test))]
 fn main() {
     initialize();
     prepare_cargo_cfg();
 
-    let manifest_dir = current_dir();
-    let manifest_dir = dunce::canonicalize(Path::new(&manifest_dir)).unwrap();
-    let prefix_str = prefix_string();
-    let prefix = if is_no_prefix() {
-        None
-    } else {
-        Some(prefix_str)
-    };
+    let manifest_dir = canonicalized_manifest_dir();
+    let prefix = (!is_no_prefix()).then(prefix_string);
 
     let builder = get_builder(&prefix, &manifest_dir, &out_dir());
     emit_warning(format!("Building with: {}", builder.name()));
@@ -862,7 +963,9 @@ fn main() {
             "If bindgen is unable to locate a header file, use the \
             BINDGEN_EXTRA_CLANG_ARGS environment variable to specify additional include paths.",
         );
-        emit_warning("See: https://github.com/rust-lang/rust-bindgen?tab=readme-ov-file#environment-variables");
+        emit_warning(
+            "See: https://github.com/rust-lang/rust-bindgen?tab=readme-ov-file#environment-variables",
+        );
         emit_warning("######");
         let aws_lc_crypto_dir = Path::new(&manifest_dir).join("aws-lc").join("crypto");
         if !aws_lc_crypto_dir.exists() {
