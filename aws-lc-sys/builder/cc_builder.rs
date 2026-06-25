@@ -170,11 +170,8 @@ impl CcBuilder {
         cc_build: &cc::Build,
     ) -> (bool, Vec<BuildOption>) {
         let mut build_options: Vec<BuildOption> = Vec::new();
-
-        let compiler_is_msvc = {
-            let compiler = cc_build.get_compiler();
-            !compiler.is_like_gnu() && !compiler.is_like_clang()
-        };
+        let compiler = cc_build.get_compiler();
+        let compiler_is_msvc = { !compiler.is_like_gnu() && !compiler.is_like_clang() };
 
         match requested_c_std() {
             CStdRequested::C99 => {
@@ -250,6 +247,12 @@ impl CcBuilder {
                 build_options.push(option);
             }
         }
+
+        if compiler.is_like_mcst_lcc() {
+            build_options.push(BuildOption::flag("-Wno-deprecated-declarations"));
+            build_options.push(BuildOption::flag("-Wno-error=signed-one-bit-field"));
+        }
+
         (compiler_is_msvc, build_options)
     }
 
@@ -269,12 +272,6 @@ impl CcBuilder {
                 build_options.push(BuildOption::define("_XOPEN_SOURCE", "700"));
                 build_options.push(BuildOption::flag("-pthread"));
             }
-        }
-
-        if compiler.is_like_mcst_lcc() {
-            cc_build
-                .flag("-Wno-deprecated-declarations")
-                .flag("-Wno-error=signed-one-bit-field");
         }
 
         self.add_includes(&mut build_options);
