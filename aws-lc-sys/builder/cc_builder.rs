@@ -406,34 +406,38 @@ impl CcBuilder {
         let compiler = cc_build.get_compiler();
 
         let force_include_option = if compiler.is_like_msvc() {
-            "/FI"
+            ("", "/FI")
         } else {
-            "--include="
+            ("-include", "")
         };
         // s2n-bignum is compiled separately due to needing extra flags
         let mut s2n_bignum_builder = cc_build.clone();
-        s2n_bignum_builder.flag(format!(
-            "{}{}",
-            force_include_option,
-            self.manifest_dir
-                .join("generated-include")
-                .join("openssl")
-                .join("boringssl_prefix_symbols_asm.h")
-                .display()
-        ));
+        s2n_bignum_builder
+            .flag(force_include_option.0)
+            .flag(format!(
+                "{}{}",
+                force_include_option.1,
+                self.manifest_dir
+                    .join("generated-include")
+                    .join("openssl")
+                    .join("boringssl_prefix_symbols_asm.h")
+                    .display()
+            ));
         s2n_bignum_builder.define("S2N_BN_HIDE_SYMBOLS", "1");
 
         // CPU Jitter Entropy is compiled separately due to needing specific flags
         let mut jitter_entropy_builder = self.prepare_jitter_entropy_builder();
-        jitter_entropy_builder.flag(format!(
-            "{}{}",
-            force_include_option,
-            self.manifest_dir
-                .join("generated-include")
-                .join("openssl")
-                .join("boringssl_prefix_symbols.h")
-                .display()
-        ));
+        jitter_entropy_builder
+            .flag(force_include_option.0)
+            .flag(format!(
+                "{}{}",
+                force_include_option.1,
+                self.manifest_dir
+                    .join("generated-include")
+                    .join("openssl")
+                    .join("boringssl_prefix_symbols.h")
+                    .display()
+            ));
 
         let s2n_bignum_source_feature_map = Self::build_s2n_bignum_source_feature_map();
         let compiler_features = self.compiler_features.take();
