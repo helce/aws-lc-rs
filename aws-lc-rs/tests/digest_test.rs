@@ -58,7 +58,7 @@ mod digest_shavs {
             // length is zero.
             if len_bits == 0 {
                 assert_eq!(msg, &[0u8]);
-                msg.truncate(0);
+                msg.clear();
             }
             assert_eq!(msg.len().checked_mul(8).unwrap(), len_bits);
             let expected = test_case.consume_bytes("MD");
@@ -78,9 +78,6 @@ mod digest_shavs {
                     run_monte_carlo_fips_202_test, TestType,
                 };
                 use aws_lc_rs::{digest, test_file};
-
-                #[cfg(target_arch = "wasm32")]
-                use wasm_bindgen_test::wasm_bindgen_test as test;
 
                 #[test]
                 fn short_msg_known_answer_test() {

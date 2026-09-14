@@ -17,6 +17,7 @@ use aws_lc_rs::signature::{
 };
 use aws_lc_rs::test::to_hex_upper;
 use aws_lc_rs::{digest, rand, signature, test, test_file};
+use std::collections::HashSet;
 
 #[test]
 fn rsa_traits() {
@@ -28,6 +29,20 @@ fn rsa_traits() {
     test::compile_time_assert_sync::<RsaPublicKeyComponents<&[u8]>>();
     test::compile_time_assert_send::<RsaPublicKeyComponents<Vec<u8>>>();
     test::compile_time_assert_sync::<RsaPublicKeyComponents<Vec<u8>>>();
+
+    // Hazmat encryption types
+    test::compile_time_assert_send::<PrivateDecryptingKey>();
+    test::compile_time_assert_sync::<PrivateDecryptingKey>();
+    test::compile_time_assert_send::<PublicEncryptingKey>();
+    test::compile_time_assert_sync::<PublicEncryptingKey>();
+    test::compile_time_assert_send::<OaepPrivateDecryptingKey>();
+    test::compile_time_assert_sync::<OaepPrivateDecryptingKey>();
+    test::compile_time_assert_send::<OaepPublicEncryptingKey>();
+    test::compile_time_assert_sync::<OaepPublicEncryptingKey>();
+    test::compile_time_assert_send::<Pkcs1PrivateDecryptingKey>();
+    test::compile_time_assert_sync::<Pkcs1PrivateDecryptingKey>();
+    test::compile_time_assert_send::<Pkcs1PublicEncryptingKey>();
+    test::compile_time_assert_sync::<Pkcs1PublicEncryptingKey>();
 }
 
 #[test]
@@ -60,6 +75,11 @@ fn rsa_from_pkcs8_test() {
 #[test]
 fn test_signature_rsa_pkcs1_sign() {
     let rng = rand::SystemRandom::new();
+    // Under `disable_slow_tests`, one representative vector per digest is
+    // enough to exercise the signing path for MSan.  The `Fail-Invalid-Key`
+    // early-return above still runs on every vector, so input-validation
+    // coverage is preserved.
+    let mut signed_digests = HashSet::new();
     test::run(
         test_file!("data/rsa_pkcs1_sign_tests.txt"),
         |section, test_case| {
@@ -93,6 +113,9 @@ fn test_signature_rsa_pkcs1_sign() {
             let key_pair = RsaKeyPair::from_der(&private_key);
             if result == "Fail-Invalid-Key" {
                 assert!(key_pair.is_err(), "{}", &debug_msg);
+                return Ok(());
+            }
+            if cfg!(disable_slow_tests) && !signed_digests.insert(digest_name) {
                 return Ok(());
             }
             let key_pair = key_pair.expect(&debug_msg);
@@ -146,6 +169,9 @@ fn test_signature_rsa_pkcs1_sign() {
 
 #[test]
 fn test_signature_rsa_pss_sign() {
+    // Under `disable_slow_tests`, one representative vector per digest is
+    // enough to exercise the signing path for MSan.
+    let mut signed_digests = HashSet::new();
     test::run(
         test_file!("data/rsa_pss_sign_tests.txt"),
         |section, test_case| {
@@ -177,10 +203,13 @@ fn test_signature_rsa_pss_sign() {
             if key_pair.is_err() && result == "Fail-Invalid-Key" {
                 return Ok(());
             }
+            let msg = test_case.consume_bytes("Msg");
+            if cfg!(disable_slow_tests) && !signed_digests.insert(digest_name) {
+                return Ok(());
+            }
             let key_pair = key_pair.unwrap();
             let public_key = key_pair.public_key();
             let rng = SystemRandom::new();
-            let msg = test_case.consume_bytes("Msg");
 
             {
                 let upk = UnparsedPublicKey::new(verification_alg, public_key.as_ref());
@@ -1176,8 +1205,21 @@ fn encrypt_decrypt_key_size() {
 fn too_small_encrypt_key() {
     const PRIVATE_KEY: &[u8] = include_bytes!("data/rsa_test_private_key_1024.p8");
     const PUBLIC_KEY: &[u8] = include_bytes!("data/rsa_test_public_key_1024.x509");
-    PrivateDecryptingKey::from_pkcs8(PRIVATE_KEY).expect_err("private key too small");
-    PublicEncryptingKey::from_der(PUBLIC_KEY).expect_err("public key too small");
+    let private_err =
+        PrivateDecryptingKey::from_pkcs8(PRIVATE_KEY).expect_err("private key too small");
+    let public_err = PublicEncryptingKey::from_der(PUBLIC_KEY).expect_err("public key too small");
+
+    assert_eq!("TooSmall", private_err.to_string());
+    assert_eq!("TooSmall", public_err.to_string());
+}
+
+#[test]
+fn too_small_signing_key_reports_too_small() {
+    const PRIVATE_KEY: &[u8] = include_bytes!("data/rsa_test_private_key_1024.p8");
+
+    let err = RsaKeyPair::from_pkcs8(PRIVATE_KEY).expect_err("signing key too small");
+
+    assert_eq!("TooSmall", err.to_string());
 }
 
 #[test]
@@ -1339,7 +1381,18 @@ fn errors_on_larger_than_max_plaintext() {
 #[test]
 fn too_big_encrypt_key() {
     const PRIVATE_KEY: &[u8] = include_bytes!("data/rsa_test_private_key_16384.p8");
-    PrivateDecryptingKey::from_pkcs8(PRIVATE_KEY).expect_err("key too big");
+    let err = PrivateDecryptingKey::from_pkcs8(PRIVATE_KEY).expect_err("key too big");
+
+    assert_eq!("TooLarge", err.to_string());
+}
+
+#[test]
+fn too_large_signing_key_reports_too_large() {
+    const PRIVATE_KEY: &[u8] = include_bytes!("data/rsa_test_private_key_16384.p8");
+
+    let err = RsaKeyPair::from_pkcs8(PRIVATE_KEY).expect_err("signing key too large");
+
+    assert_eq!("TooLarge", err.to_string());
 }
 
 macro_rules! round_trip_pkcs1_encryption {

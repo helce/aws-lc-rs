@@ -63,25 +63,28 @@ jobs:
           - [ riscv64gc-unknown-linux-gnu, 0, 0, 1]
           - [ s390x-unknown-linux-gnu, 0, 0, 1]
           - [ x86_64-pc-windows-gnu, 0, 0, 1] # Requires release build. See: https://github.com/rust-lang/rust/issues/139380
+          - [ wasm32-unknown-emscripten, 0, 0, 0]
           - [ x86_64-unknown-illumos, 0, 0, 1]
           - [ x86_64-unknown-linux-musl, 0, 0, 1]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "stable"
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: ${{ (matrix.target[2] == '0' && 'stable') || 'nightly' }}
-          target: ${{ (matrix.target[2] == '0' && matrix.target[0]) || '' }}
-          components: ${{ (matrix.target[2] == '0' && '') || 'rust-src' }}
-      - name: Set Rust toolchain override
-        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Install Rust toolchain for ${{ matrix.target[0] }}
+        run: |
+          if [[ '${{ matrix.target[2] }}' == '0' ]]; then
+            rustup toolchain install stable --profile minimal --target ${{ matrix.target[0] }} --no-self-update
+            rustup default stable
+          else
+            rustup toolchain install nightly --profile minimal --component rust-src --no-self-update
+            rustup default nightly
+          fi
       - if: ${{ !startsWith(matrix.target[0], 'x86_64') }}
         run: |
           echo 'AWS_LC_RS_DISABLE_SLOW_TESTS=1' >> "$GITHUB_ENV"
@@ -97,6 +100,15 @@ jobs:
           echo 'CROSS_TEST_EXTRA_FLAG=--all-targets' >> "$GITHUB_ENV"
       - name: Cross-compilation (test release)
         run: cross test -p aws-lc-rs --release "${CROSS_TEST_EXTRA_FLAG}" --features unstable --target ${{ matrix.target[0] }}
+      - name: Verify wasm artifact uses non-shared memory
+        if: ${{ matrix.target[0] == 'wasm32-unknown-emscripten' }}
+        # Functional tests pass regardless of the wasm memory model because the
+        # Node test runner always provides SharedArrayBuffer. Assert on the
+        # emitted artifact instead, so a stray `-pthread` (which switches the
+        # module to shared memory) is caught here rather than by downstream
+        # browser consumers.
+        run: |
+          python3 scripts/ci/assert_wasm_unshared.py target/wasm32-unknown-emscripten/release/deps
       - if: ${{ matrix.target[1] == '1' }}
         name: Cross-compilation (test FIPS release)
         run: cross test -p aws-lc-rs --release "${CROSS_TEST_EXTRA_FLAG}" --no-default-features --features fips --target ${{ matrix.target[0] }}
@@ -146,12 +158,13 @@ jobs:
             api: 21
             test_target_cc: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: ${{ matrix.target }}
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --no-self-update
+          rustup default stable
       - name: Install Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -212,21 +225,19 @@ jobs:
         target:
           - [ x86_64-pc-windows-gnu, 0, 1 ]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "stable"
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: "stable"
-          target: ${{ matrix.target[0] }}
-      - name: Set Rust toolchain override
-        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Install Rust toolchain for ${{ matrix.target[0] }}
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target[0] }} --no-self-update
+          rustup default stable
       - if: ${{ !startsWith(matrix.target[0], 'x86_64') }}
         run: |
           echo 'AWS_LC_RS_DISABLE_SLOW_TESTS=1' >> "$GITHUB_ENV"
@@ -238,7 +249,7 @@ jobs:
     name: cross v0.2.5 tests ${{ matrix.target }}
     runs-on: ubuntu-latest
     env:
-      CROSS_CONFIG: "./Cross.toml.x86_64-unknown-linux-gnu"
+      CROSS_CONFIG: "./Cross.toml.passthrough-only"
     strategy:
       fail-fast: false
       matrix:
@@ -246,21 +257,19 @@ jobs:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "stable"
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
       - name: Install cross
         run: cargo install cross --locked --version 0.2.5
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: "stable"
-          target: ${{ matrix.target }}
-      - name: Set Rust toolchain override
-        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Install Rust toolchain for ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --no-self-update
+          rustup default stable
       - if: ${{ !startsWith(matrix.target[0], 'x86_64') }}
         run: |
           echo 'AWS_LC_RS_DISABLE_SLOW_TESTS=1' >> "$GITHUB_ENV"
@@ -274,7 +283,7 @@ jobs:
     name: iOS aarch64 cross-platform build
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - uses: actions/setup-go@v6
@@ -282,11 +291,10 @@ jobs:
           go-version: '>=1.18'
       - run: |
           brew install llvm
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
-          target: aarch64-apple-ios-sim
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-apple-ios-sim --no-self-update
+          rustup default stable
       - name: Install bash
         run: brew install bash
       - name: iOS Simulator Runner
@@ -299,15 +307,15 @@ jobs:
     env:
       TVOS_FORCE_TEST: 1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - run: |
           brew install llvm
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          components: rust-src
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src --no-self-update
+          rustup default nightly
       - name: Install bash, coreutils
         run: brew install bash coreutils
       - name: tvOS Simulator Runner
@@ -318,16 +326,15 @@ jobs:
     name: iOS x86-64 cross-platform build
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - run: |
           brew install llvm
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
-          target: x86_64-apple-ios
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-apple-ios --no-self-update
+          rustup default stable
       - name: Debug build for `x86_64-apple-ios`
         run: cargo build -p aws-lc-rs --target x86_64-apple-ios --features bindgen
       - name: Release build for `x86_64-apple-ios`
@@ -360,13 +367,13 @@ jobs:
         if: matrix.host == 'macos-latest'
         run: |
           brew install nasm ninja llvm
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --no-self-update
+          rustup default stable
       - name: Install cargo-xwin
         run: cargo install --locked cargo-xwin
       - name: Set RUSTFLAGS
@@ -430,14 +437,13 @@ jobs:
       - name: Install NASM
         if: ${{ matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'i686-pc-windows-msvc' }}
         uses: ilammy/setup-nasm@v1
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --no-self-update
+          rustup default stable
       - name: Set ACTION_CARGO
         run: |
           if ('${{ matrix.target }}' -like '*aarch64*') {
@@ -474,7 +480,7 @@ jobs:
         #   - arch: 'riscv64'
         #     options: '--no-default-features --features=fips'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Prepare VM
@@ -503,7 +509,7 @@ jobs:
           - '--all-targets'
           - '--release'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Prepare VM
@@ -526,14 +532,13 @@ jobs:
     name: cross (prebuilt nasm) - x86_64-pc-windows-gnu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: dtolnay/rust-toolchain@stable
-        id: toolchain
-        with:
-          toolchain: "stable"
-          target: x86_64-pc-windows-gnu
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-gnu --no-self-update
+          rustup default stable
       - name: Install mingw
         run: sudo apt-get update && sudo apt-get install --assume-yes mingw-w64
       - name: Run cargo test
@@ -544,7 +549,7 @@ jobs:
     env:
       DOCKER_BUILDKIT: 1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Build Docker Image
@@ -561,13 +566,27 @@ jobs:
     env:
       DOCKER_BUILDKIT: 1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Build Docker Image
         working-directory: .github/docker_images/alpine-3.20
         run: |
           ./build_image.sh
+      # Alpine 3.20 ships Cargo 1.78, which cannot parse edition-2024 manifests
+      # adopted by some transitive deps. Generate the lockfile with the runner's
+      # modern Cargo so the in-container build can consume it via --locked.
+      #
+      # The MSRV-aware resolver downgrades crates that declare a too-new
+      # rust-version (e.g. zeroize 1.9 requires Rust 1.85). It is not sufficient
+      # on its own: clap >=4.6 adopted edition 2024 without bumping its declared
+      # rust-version, so the resolver does not avoid it. Pin clap (and clap_lex)
+      # to the last edition-2021 releases that Cargo 1.78 can parse.
+      - name: Resolve MSRV-compatible dependencies
+        run: |
+          cargo --config "resolver.incompatible-rust-versions='fallback'" generate-lockfile
+          cargo update -p clap --precise 4.5.61
+          cargo update -p clap_lex --precise 1.0.1
       - name: Build
         run: |
           docker run -v "${{ github.workspace }}:/aws_lc_rs" alpine:3.20
@@ -582,7 +601,7 @@ jobs:
     env:
       DOCKER_BUILDKIT: 1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Build Docker Image
@@ -651,7 +670,7 @@ jobs:
           SYSROOT=$(cygpath -a -m '${{ steps.setup_msys2.outputs.msys2-location }}\${{ matrix.sys }}')
           echo "LIBCLANG_PATH=${SYSROOT}/lib" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Test
@@ -696,7 +715,7 @@ jobs:
           echo "GOROOT=${SYSROOT}/lib/go" >> $GITHUB_ENV
           cygpath -w ${SYSROOT}/bin >> $GITHUB_PATH
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - name: Test
@@ -718,7 +737,7 @@ jobs:
       image: rust:latest
       options: "--platform linux/${{ (matrix.config.arch == 'aarch64' && 'arm64/v8') || 'amd64'}}"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
       - run: |

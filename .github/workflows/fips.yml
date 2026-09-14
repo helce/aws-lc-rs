@@ -45,15 +45,13 @@ jobs:
           - --no-default-features --features fips,ring-sig-verify,unstable
           - --no-default-features --features fips,alloc,unstable
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: ${{ matrix.rust }}
-      - name: Set Rust toolchain override
-        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update
+          rustup default ${{ matrix.rust }}
       - uses: actions/setup-go@v6
         with:
           go-version: '>=1.18'
@@ -87,15 +85,13 @@ jobs:
           - --no-default-features --features fips,alloc,unstable
     steps:
       - uses: ilammy/setup-nasm@v1
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
-      - name: Set Rust toolchain override
-        run: rustup override set ${{ steps.toolchain.outputs.name }}
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
       - name: Install ninja-build tool
         uses: seanmiddleditch/gha-setup-ninja@v6
       - name: Run cargo test
@@ -108,13 +104,13 @@ jobs:
     env:
       AWS_LC_FIPS_SYS_CPU_JITTER_ENTROPY: 1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: nightly
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install nightly --profile minimal --no-self-update
+          rustup default nightly
       - uses: actions/setup-go@v6
         with:
           go-version: '>=1.18'

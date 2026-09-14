@@ -33,14 +33,14 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-15-intel, macos-latest ]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: '>=1.20'
@@ -71,16 +71,14 @@ jobs:
           - 'x86_64-pc-windows-gnu'
           - 'i686-pc-windows-msvc'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        id: toolchain
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --component rustfmt --no-self-update
+          rustup default stable
       - if: contains(matrix.target, 'x86') || contains(matrix.target, 'i686')
         uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b # v1.5.2
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -115,14 +113,14 @@ jobs:
           - powerpc-unknown-linux-gnu
           - powerpc64le-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: '>=1.20'
@@ -143,18 +141,15 @@ jobs:
     if: github.repository == 'aws/aws-lc-rs'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          components: 'rustfmt'
-          toolchain: ${{ env.RUST_SCRIPT_NIGHTLY_TOOLCHAIN }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchains
+        run: |
+          rustup toolchain install ${{ env.RUST_SCRIPT_NIGHTLY_TOOLCHAIN }} --profile minimal --component rustfmt --no-self-update
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: '>=1.20'
@@ -173,14 +168,14 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-15-intel, macos-latest ]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - name: Install current Bash on macOS
         if: runner.os == 'macOS'
         run: brew install bash coreutils
@@ -204,16 +199,14 @@ jobs:
           - 'x86_64-pc-windows-gnu'
           - 'i686-pc-windows-msvc'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        id: toolchain
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }} --component rustfmt --no-self-update
+          rustup default stable
       - if: contains(matrix.target, 'x86') || contains(matrix.target, 'i686')
         uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b # v1.5.2
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -242,14 +235,14 @@ jobs:
           - "riscv64gc-unknown-linux-gnu"
           - "x86_64-unknown-linux-musl"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - name: Install cross
         run: cargo install cross --locked --git https://github.com/cross-rs/cross
       - name: Generate bindings for ${{ matrix.target }}
@@ -268,14 +261,14 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-latest ]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - name: Install current Bash on macOS
         if: runner.os == 'macOS'
         run: brew install bash coreutils
@@ -303,14 +296,14 @@ jobs:
     if: github.repository == 'aws/aws-lc-rs'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+          rustup default stable
       - name: Install ripgrep
         run: cargo install --force --locked ripgrep --features pcre2
       - name: Collect source
@@ -325,16 +318,14 @@ jobs:
     if: github.repository == 'aws/aws-lc-rs'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: 'recursive'
           ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        id: toolchain
-        with:
-          toolchain: stable
-          targets: "x86_64-pc-windows-msvc,x86_64-pc-windows-gnu"
-          components: 'rustfmt'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc --target x86_64-pc-windows-gnu --component rustfmt --no-self-update
+          rustup default stable
       - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b # v1.5.2
       - name: Build aws-lc-sys
         shell: bash

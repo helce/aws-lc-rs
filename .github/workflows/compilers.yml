@@ -18,6 +18,19 @@ env:
   # Otherwise, we test against the latest version.
   RUST_NIGHTLY_TOOLCHAIN: nightly
   DEBIAN_FRONTEND: noninteractive
+  # Pinned versions of tools we install via curl in container jobs.
+  # Hoisted here so updates are a single edit instead of four.
+  GO_VERSION: 1.26.3
+  # Standard curl flags for fetching tool tarballs/scripts in container jobs.
+  # -f: fail (non-zero exit) on HTTP errors instead of writing an HTML error
+  #     page to disk and confusingly failing the next tar/sh step.
+  # --retry / --retry-delay: ride out transient blips on go.dev, github.com
+  #     releases, and sh.rustup.rs. curl's default --retry behavior already
+  #     covers timeouts and HTTP 408/429/5xx, which is the failure mode we
+  #     actually see. (Note: --retry-all-errors would be nice-to-have but
+  #     was added in curl 7.71.0 and is unavailable on the ubuntu:18.04 and
+  #     ubuntu:20.04 containers used here.)
+  CURL_RETRY_FLAGS: "-fL --retry 5 --retry-delay 5"
 
 permissions:
   contents: read
@@ -51,17 +64,12 @@ jobs:
           apt-get install -y gpg-agent software-properties-common dirmngr
           apt-get install -y gcc-${CI_GCC_VERSION} g++-${CI_GCC_VERSION}
           apt-get install -y build-essential
-          GO_VERSION=1.23.8
-          curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          curl ${CURL_RETRY_FLAGS} -O "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
           tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
           rm "go${GO_VERSION}.linux-amd64.tar.gz"
           echo "/usr/local/go/bin" >> $GITHUB_PATH
-          curl -L -O -J https://github.com/PowerShell/PowerShell/releases/download/v7.2.23/powershell_7.2.23-1.deb_amd64.deb
-          dpkg -i powershell_7.2.23-1.deb_amd64.deb
-          apt-get install -f
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${CI_GCC_VERSION} 100
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${CI_GCC_VERSION} 100
-          rm powershell_7.2.23-1.deb_amd64.deb
       - name: Checkout
         run: |
           set -x
@@ -72,10 +80,12 @@ jobs:
           git fetch origin ${{ github.sha }}
           git checkout --recurse-submodules -b ci-job ${{ github.sha }}
           gcc --version
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 ${CURL_RETRY_FLAGS} -sS https://sh.rustup.rs -o /tmp/rustup-init.sh
+          sh /tmp/rustup-init.sh -y --default-toolchain stable --profile minimal
+          rm /tmp/rustup-init.sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run cargo test (debug)
         working-directory: /tmp/aws-lc-rs/
         run: cargo test -p aws-lc-rs --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
@@ -84,27 +94,50 @@ jobs:
         run: cargo test -p aws-lc-rs --release --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
       # The steps below verify that we're successfully using `-ffile-prefix-map`
       # to remove build environment paths from the resulting library.
-      - if: ${{ matrix.gcc_version == '8' }}
+      # `${PWD}` is the `working-directory` (the checkout root), which is the
+      # prefix that would leak into the archive if path stripping regressed.
+      - if: ${{ fromJSON(matrix.gcc_version) >= 8 }}
         working-directory: /tmp/aws-lc-rs/
         name: Verify paths found in debug build
         run: |
           DEBUG_LIBCRYPTO=$(find ./target/debug -name "libaws_lc_*_crypto.a")
-          if strings ${DEBUG_LIBCRYPTO} | grep '/tmp/aws-lc-rs/'; then
+          if strings ${DEBUG_LIBCRYPTO} | grep "${PWD}/"; then
             exit 0; # SUCCESS
           else
             strings ${DEBUG_LIBCRYPTO}
-            exit 1; # FAIL - we expected to find "/tmp/aws-lc-rs/"  (i.e., a path)
+            exit 1; # FAIL - we expected to find "${PWD}" (i.e., a path)
           fi
       # TODO: Due to the nature of the FIPS build (e.g., its dynamic generation of
       # assembly files and its custom compilation commands within CMake), not all
       # source paths are stripped from the resulting binary.
-      - if: ${{ matrix.gcc_version == '8' && matrix.fips == '0' }}
+      - if: ${{ fromJSON(matrix.gcc_version) >= 8 && matrix.fips == '0' }}
         working-directory: /tmp/aws-lc-rs/
         name: Verify paths not found in release build
         run: |
           RELEASE_LIBCRYPTO=$(find ./target/release -name "libaws_lc_*_crypto.a")
-          if strings ${RELEASE_LIBCRYPTO} | grep '/tmp/aws-lc-rs/'; then
-            exit 1; # FAIL - we did not expect to find "/tmp/aws-lc-rs/" (i.e., a path)
+          if strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/"; then
+            exit 1; # FAIL - we did not expect to find "${PWD}" (i.e., a path)
+          else
+            exit 0; # SUCCESS
+          fi
+      # Verify the same path stripping in a release build that keeps DWARF.
+      # This catches sub-builders that miss the shared prefix-map flags and
+      # exercises the assembler-specific `-Wa,--debug-prefix-map` path.
+      # Pinned to a single GCC version (not `>=`): each run adds a full
+      # `cargo build`, so we avoid fanning it out across the matrix.
+      - if: ${{ matrix.gcc_version == '8' && matrix.fips == '0' }}
+        working-directory: /tmp/aws-lc-rs/
+        name: Verify paths not found in release build with debug info
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: 'true'
+          CARGO_TARGET_DIR: /tmp/aws-lc-rs-target-debuginfo
+        run: |
+          cargo build -p aws-lc-sys --release
+          RELEASE_LIBCRYPTO=$(find ${CARGO_TARGET_DIR}/release -name "libaws_lc_*_crypto.a")
+          if strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/"; then
+            echo "FAIL: build paths leaked into archive (DWARF source paths):"
+            strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/" | sort -u | head -20
+            exit 1; # FAIL - we did not expect to find "${PWD}" (i.e., a path)
           else
             exit 0; # SUCCESS
           fi
@@ -136,20 +169,12 @@ jobs:
           apt-get install -y gpg-agent software-properties-common dirmngr
           apt-get install -y gcc-${CI_GCC_VERSION} g++-${CI_GCC_VERSION}
           apt-get install -y build-essential
-          GO_VERSION=1.23.8
-          curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz"
+          curl ${CURL_RETRY_FLAGS} -O "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz"
           tar -C /usr/local -xzf "go${GO_VERSION}.linux-arm64.tar.gz"
           rm "go${GO_VERSION}.linux-arm64.tar.gz"
           echo "/usr/local/go/bin" >> $GITHUB_PATH
-          curl -L -O -J https://github.com/PowerShell/PowerShell/releases/download/v7.2.23/powershell-7.2.23-linux-arm64.tar.gz
-          mkdir -p /opt/microsoft/powershell/7
-          tar zxf powershell-7.2.23-linux-arm64.tar.gz -C /opt/microsoft/powershell/7
-          chmod +x /opt/microsoft/powershell/7/pwsh
-          ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
-          apt-get install -f
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${CI_GCC_VERSION} 100
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${CI_GCC_VERSION} 100
-          rm powershell-7.2.23-linux-arm64.tar.gz
       - name: Checkout
         run: |
           set -x
@@ -160,16 +185,67 @@ jobs:
           git fetch origin ${{ github.sha }}
           git checkout --recurse-submodules -b ci-job ${{ github.sha }}
           gcc --version
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 ${CURL_RETRY_FLAGS} -sS https://sh.rustup.rs -o /tmp/rustup-init.sh
+          sh /tmp/rustup-init.sh -y --default-toolchain stable --profile minimal
+          rm /tmp/rustup-init.sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run cargo test (debug)
         working-directory: /tmp/aws-lc-rs/
         run: cargo test -p aws-lc-rs --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
       - name: Run cargo test (release)
         working-directory: /tmp/aws-lc-rs/
         run: cargo test -p aws-lc-rs --release --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
+      # The steps below verify that we're successfully using `-ffile-prefix-map`
+      # to remove build environment paths from the resulting library.
+      # `${PWD}` is the `working-directory` (the checkout root), which is the
+      # prefix that would leak into the archive if path stripping regressed.
+      - if: ${{ fromJSON(matrix.gcc_version) >= 8 }}
+        working-directory: /tmp/aws-lc-rs/
+        name: Verify paths found in debug build
+        run: |
+          DEBUG_LIBCRYPTO=$(find ./target/debug -name "libaws_lc_*_crypto.a")
+          if strings ${DEBUG_LIBCRYPTO} | grep "${PWD}/"; then
+            exit 0; # SUCCESS
+          else
+            strings ${DEBUG_LIBCRYPTO}
+            exit 1; # FAIL - we expected to find "${PWD}" (i.e., a path)
+          fi
+      # TODO: Due to the nature of the FIPS build (e.g., its dynamic generation of
+      # assembly files and its custom compilation commands within CMake), not all
+      # source paths are stripped from the resulting binary.
+      - if: ${{ fromJSON(matrix.gcc_version) >= 8 && matrix.fips == '0' }}
+        working-directory: /tmp/aws-lc-rs/
+        name: Verify paths not found in release build
+        run: |
+          RELEASE_LIBCRYPTO=$(find ./target/release -name "libaws_lc_*_crypto.a")
+          if strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/"; then
+            exit 1; # FAIL - we did not expect to find "${PWD}" (i.e., a path)
+          else
+            exit 0; # SUCCESS
+          fi
+      # Verify the same path stripping in a release build that keeps DWARF.
+      # This catches sub-builders that miss the shared prefix-map flags and
+      # exercises the assembler-specific `-Wa,--debug-prefix-map` path.
+      # Pinned to a single GCC version (not `>=`): each run adds a full
+      # `cargo build`, so we avoid fanning it out across the matrix.
+      - if: ${{ matrix.gcc_version == '8' && matrix.fips == '0' }}
+        working-directory: /tmp/aws-lc-rs/
+        name: Verify paths not found in release build with debug info
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: 'true'
+          CARGO_TARGET_DIR: /tmp/aws-lc-rs-target-debuginfo
+        run: |
+          cargo build -p aws-lc-sys --release
+          RELEASE_LIBCRYPTO=$(find ${CARGO_TARGET_DIR}/release -name "libaws_lc_*_crypto.a")
+          if strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/"; then
+            echo "FAIL: build paths leaked into archive (DWARF source paths):"
+            strings ${RELEASE_LIBCRYPTO} | grep "${PWD}/" | sort -u | head -20
+            exit 1; # FAIL - we did not expect to find "${PWD}" (i.e., a path)
+          else
+            exit 0; # SUCCESS
+          fi
 
   aws-lc-rs-1804-gcc:
     if: github.repository_owner == 'aws'
@@ -201,17 +277,12 @@ jobs:
           apt-get install -y gpg-agent software-properties-common dirmngr
           apt-get install -y gcc-${CI_GCC_VERSION} g++-${CI_GCC_VERSION}
           apt-get install -y build-essential
-          GO_VERSION=1.23.8
-          curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          curl ${CURL_RETRY_FLAGS} -O "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
           tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
           rm "go${GO_VERSION}.linux-amd64.tar.gz"
           echo "/usr/local/go/bin" >> $GITHUB_PATH
-          curl -L -O -J https://github.com/PowerShell/PowerShell/releases/download/v7.2.23/powershell_7.2.23-1.deb_amd64.deb
-          dpkg -i powershell_7.2.23-1.deb_amd64.deb
-          apt-get install -f
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${CI_GCC_VERSION} 100
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${CI_GCC_VERSION} 100
-          rm powershell_7.2.23-1.deb_amd64.deb
       - name: Checkout
         run: |
           set -x
@@ -222,10 +293,12 @@ jobs:
           git fetch origin ${{ github.sha }}
           git checkout --recurse-submodules -b ci-job ${{ github.sha }}
           gcc --version
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 ${CURL_RETRY_FLAGS} -sS https://sh.rustup.rs -o /tmp/rustup-init.sh
+          sh /tmp/rustup-init.sh -y --default-toolchain stable --profile minimal
+          rm /tmp/rustup-init.sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run cargo test (debug)
         working-directory: /tmp/aws-lc-rs/
         run: cargo test -p aws-lc-rs --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
@@ -262,20 +335,12 @@ jobs:
           apt-get install -y gpg-agent software-properties-common dirmngr
           apt-get install -y gcc-${CI_GCC_VERSION} g++-${CI_GCC_VERSION}
           apt-get install -y build-essential
-          GO_VERSION=1.23.8
-          curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz"
+          curl ${CURL_RETRY_FLAGS} -O "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz"
           tar -C /usr/local -xzf "go${GO_VERSION}.linux-arm64.tar.gz"
           rm "go${GO_VERSION}.linux-arm64.tar.gz"
           echo "/usr/local/go/bin" >> $GITHUB_PATH
-          curl -L -O -J https://github.com/PowerShell/PowerShell/releases/download/v7.2.23/powershell-7.2.23-linux-arm64.tar.gz
-          mkdir -p /opt/microsoft/powershell/7
-          tar zxf powershell-7.2.23-linux-arm64.tar.gz -C /opt/microsoft/powershell/7
-          chmod +x /opt/microsoft/powershell/7/pwsh
-          ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
-          apt-get install -f
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${CI_GCC_VERSION} 100
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${CI_GCC_VERSION} 100
-          rm powershell-7.2.23-linux-arm64.tar.gz
       - name: Checkout
         run: |
           set -x
@@ -286,10 +351,12 @@ jobs:
           git fetch origin ${{ github.sha }}
           git checkout --recurse-submodules -b ci-job ${{ github.sha }}
           gcc --version
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 ${CURL_RETRY_FLAGS} -sS https://sh.rustup.rs -o /tmp/rustup-init.sh
+          sh /tmp/rustup-init.sh -y --default-toolchain stable --profile minimal
+          rm /tmp/rustup-init.sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Run cargo test (debug)
         working-directory: /tmp/aws-lc-rs/
         run: cargo test -p aws-lc-rs --all-targets --no-default-features --features ${{ (matrix.fips == '0' && 'unstable,aws-lc-sys') || 'unstable,fips' }}
@@ -316,13 +383,13 @@ jobs:
           - os: windows-11-arm
             cmake: 0
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: dtolnay/rust-toolchain@master
-        id: toolchain
-        with:
-          toolchain: stable
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
       - name: Run cargo test
         working-directory: ./aws-lc-rs
         env:
