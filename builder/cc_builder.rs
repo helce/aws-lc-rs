@@ -191,7 +191,8 @@ impl CcBuilder {
     ) -> (bool, Vec<BuildOption>) {
         let mut build_options: Vec<BuildOption> = Vec::new();
 
-        let is_cl_like = compiler_is_cl_like(&cc_build.get_compiler());
+        let compiler = cc_build.get_compiler();
+        let is_cl_like = compiler_is_cl_like(&compiler);
 
         match requested_c_std() {
             CStdRequested::C99 => {
@@ -280,6 +281,12 @@ impl CcBuilder {
                 build_options.push(option);
             }
         }
+
+        if compiler.is_like_mcst_lcc() {
+            build_options.push(BuildOption::flag("-Wno-deprecated-declarations"));
+            build_options.push(BuildOption::flag("-Wno-error=signed-one-bit-field"));
+        }
+
         (is_cl_like, build_options)
     }
 
@@ -605,33 +612,41 @@ impl CcBuilder {
     fn add_all_files(&self, sources: &[&'static str], cc_build: &mut cc::Build) {
         let is_cl_like = compiler_is_cl_like(&cc_build.get_compiler());
 
-        let force_include_option = if is_cl_like { "/FI" } else { "--include=" };
+        let force_include_option = if is_cl_like {
+            ("", "/FI")
+        } else {
+            ("-include", "")
+        };
         // s2n-bignum is compiled separately due to needing extra flags
         let mut s2n_bignum_builder = cc_build.clone();
-        s2n_bignum_builder.flag(format!(
-            "{}{}",
-            force_include_option,
-            self.manifest_dir
-                .join("generated-include")
-                .join("openssl")
-                .join("boringssl_prefix_symbols_asm.h")
-                .display()
-        ));
+        s2n_bignum_builder
+            .flag(force_include_option.0)
+            .flag(format!(
+                "{}{}",
+                force_include_option.1,
+                self.manifest_dir
+                    .join("generated-include")
+                    .join("openssl")
+                    .join("boringssl_prefix_symbols_asm.h")
+                    .display()
+            ));
         s2n_bignum_builder.define("S2N_BN_HIDE_SYMBOLS", "1");
 
         // CPU Jitter Entropy is compiled separately due to needing specific flags.
         // Only set up the builder if jitter entropy is actually going to be built.
         let mut jitter_entropy_builder = should_build_jitter_entropy().then(|| {
             let mut jitter_entropy_builder = self.prepare_jitter_entropy_builder(is_cl_like);
-            jitter_entropy_builder.flag(format!(
-                "{}{}",
-                force_include_option,
-                self.manifest_dir
-                    .join("generated-include")
-                    .join("openssl")
-                    .join("boringssl_prefix_symbols.h")
-                    .display()
-            ));
+            jitter_entropy_builder
+                .flag(force_include_option.0)
+                .flag(format!(
+                    "{}{}",
+                    force_include_option.1,
+                    self.manifest_dir
+                        .join("generated-include")
+                        .join("openssl")
+                        .join("boringssl_prefix_symbols.h")
+                        .display()
+                ));
             jitter_entropy_builder
         });
 
