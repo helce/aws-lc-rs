@@ -3,8 +3,7 @@ name: cross
 on:
   push:
     branches:
-      - "*"
-      - "!generate/aws-lc-*"
+      - "main"
   pull_request:
     branches:
       - "*"
@@ -286,7 +285,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '>=1.18'
       - run: |
