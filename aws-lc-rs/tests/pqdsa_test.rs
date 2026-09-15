@@ -1,12 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR ISC
-#![cfg(all(not(feature = "fips"), feature = "unstable"))]
 
 use aws_lc_rs::encoding::{AsDer, AsRawBytes};
-use aws_lc_rs::signature::{KeyPair, ParsedPublicKey, VerificationAlgorithm};
-use aws_lc_rs::unstable::signature::{
-    PqdsaKeyPair, ML_DSA_44, ML_DSA_44_SIGNING, ML_DSA_65, ML_DSA_65_SIGNING, ML_DSA_87,
-    ML_DSA_87_SIGNING,
+use aws_lc_rs::signature::{
+    KeyPair, ParsedPublicKey, PqdsaKeyPair, VerificationAlgorithm, ML_DSA_44, ML_DSA_44_SIGNING,
+    ML_DSA_65, ML_DSA_65_SIGNING, ML_DSA_87, ML_DSA_87_SIGNING,
 };
 use aws_lc_rs::{test, test_file};
 
@@ -185,7 +183,7 @@ fn test_mldsa_seed_serialization_roundtrip() {
         let kp = PqdsaKeyPair::from_seed(signing_alg, &seed).unwrap();
 
         // PKCS#8 round-trip
-        let pkcs8 = kp.to_pkcs8().expect("to_pkcs8 should succeed");
+        let pkcs8 = kp.to_pkcs8v1().expect("to_pkcs8v1 should succeed");
         let kp_pkcs8 = PqdsaKeyPair::from_pkcs8(signing_alg, pkcs8.as_ref())
             .expect("from_pkcs8 should reconstruct the key");
         assert_eq!(
