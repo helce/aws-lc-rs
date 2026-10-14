@@ -163,9 +163,13 @@ jobs:
     if:  github.event_name == 'pull_request'
     name: aws-ls-rs coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           submodules: 'recursive'
           lfs: true
 
@@ -182,10 +186,9 @@ jobs:
       - name: Run FIPS coverage
         run: cargo llvm-cov -p aws-lc-rs --features unstable,fips --no-fail-fast --ignore-filename-regex "aws-lc-(fips-)?sys/.*" --codecov --output-path ./codecov-fips.json
       - name: Upload coverage reports to Codecov
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
+          use_oidc: true
           files: ./codecov.json,./codecov-fips.json
           verbose: true
           fail_ci_if_error: true
@@ -855,24 +858,65 @@ jobs:
   builder-tests:
     if: github.repository_owner == 'aws'
     # The builder normally compiles only as a build script, so its unit tests run
-    # solely through the builder-test harness crate; no other lane runs them. The
-    # compiler-probe tests need the runner's clang and GCC and only run on Linux.
-    name: builder unit tests (${{ matrix.os }})
+    # through the builder-test harness. The bindgen feature adds the generator
+    # tests, which need libclang. The compiler-probe tests only run on Linux.
+    # CI otherwise resolves the newest `cc`, so the pinned lanes cover releases
+    # where cc changed when it reads CFLAGS (#1064, #1252). 1.2.41: workspace
+    # minimum (newer cmake needs cc >= 1.2.46, so cmake is pinned to its own
+    # minimum too); 1.2.57: cc-rs#1682; 1.6.0: cc-rs#1969.
+    name: builder unit tests (${{ matrix.os }}${{ matrix.cc_version != 'latest' && format(', cc {0}', matrix.cc_version) || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
+        cc_version: [ latest ]
+        include:
+          - os: ubuntu-latest
+            cc_version: '1.2.41'
+          - os: ubuntu-latest
+            cc_version: '1.2.57'
+          - os: ubuntu-latest
+            cc_version: '1.6.0'
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
+      - if: ${{ matrix.os == 'macos-latest' }}
+        name: Install libclang
+        run: |
+          brew install llvm
+          echo 'LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib' >> "$GITHUB_ENV"
+          echo 'LLVM_CONFIG_PATH=/opt/homebrew/opt/llvm/bin/llvm-config' >> "$GITHUB_ENV"
       - name: Install Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
+      - if: ${{ matrix.cc_version != 'latest' }}
+        name: Pin cc ${{ matrix.cc_version }}
+        run: |
+          cargo update -p cmake --precise 0.1.54
+          cargo update -p cc --precise ${{ matrix.cc_version }}
       - name: Run builder unit tests
         run: cargo test -p builder-test
+      - name: Run builder unit tests (bindgen)
+        run: cargo test -p builder-test --features bindgen
+      # hostile-environment covers the newest cc end to end.
+      - if: ${{ matrix.cc_version != 'latest' }}
+        name: Build aws-lc-sys with optimizing CFLAGS
+        env:
+          CFLAGS: '-O2'
+        run: cargo build -p aws-lc-sys
+      - name: Run compiler override regression with cc 1.2.41
+        if: runner.os == 'Linux'
+        env:
+          HOST_CC: cc
+        run: |
+          # Pin a cc release that caches env reads; not all releases do.
+          # Pin cmake too: 0.1.58 requires cc >= 1.2.46.
+          cargo update -p cmake --precise 0.1.54
+          cargo update -p cc --precise 1.2.41
+          cargo test --locked -p builder-test test_crate_cc_reaches_main_builder
 
   linux-clang-lto:
     if: github.repository_owner == 'aws'
@@ -1154,33 +1198,52 @@ jobs:
       - name: Run cargo test
         run: cargo test --tests -p aws-lc-rs --no-default-features --features aws-lc-sys
 
-  build-env-no-u1-bindings-test:
+  symlinked-manifest-dir-reproducibility:
     if: github.repository_owner == 'aws'
-    name: aws-lc-rs build-env-no-u1-bindings-test
-    runs-on: ${{ matrix.os }}
+    # cc-rs hashes each source's dirname into its object name after stripping the raw
+    # CARGO_MANIFEST_DIR. If the builder passes symlink-resolved paths, the strip misses
+    # and the absolute build path is hashed into archive member names, so the library
+    # differs between builds of identical sources. cc builder only: CMake names objects itself.
+    name: Symlinked manifest dir reproducibility
+    runs-on: ubuntu-latest
     env:
-      AWS_LC_SYS_NO_U1_BINDINGS: 1
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-15-intel, macos-latest, windows-latest ]
+      AWS_LC_SYS_CMAKE_BUILDER: 0
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - if: ${{ matrix.os == 'windows-latest' }}
-        uses: ilammy/setup-nasm@v1
       - name: Install Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
-      - name: Remove other universal bindings
-        shell: bash
+      - name: Build from real path and through a symlink
+        # Use `--manifest-path` rather than `cd`-ing into the symlink: cargo derives
+        # CARGO_MANIFEST_DIR from the resolved cwd, which would make the check vacuous.
         run: |
-          rm ./aws-lc-sys/src/universal_crypto.rs
-          rm ./aws-lc-sys/src/universal_prefixed_crypto.rs
-      - name: Run cargo test
-        run: cargo test -p aws-lc-rs --no-default-features --features aws-lc-sys --tests
+          ln -s "${PWD}" /tmp/aws-lc-rs-link
+          cargo build -p aws-lc-sys --release --target-dir /tmp/target-real
+          cargo build -p aws-lc-sys --release --target-dir /tmp/target-link \
+            --manifest-path /tmp/aws-lc-rs-link/Cargo.toml
+      - name: Verify archive member names match
+        run: |
+          # Empty paths would make both checks below pass vacuously.
+          for dir in /tmp/target-real /tmp/target-link; do
+            count=$(find "${dir}/release" -type f -name "libaws_lc_*_crypto.a" | wc -l)
+            if [ "${count}" -ne 1 ]; then
+              echo "FAIL: expected exactly one libcrypto archive under ${dir}, found ${count}"
+              exit 1
+            fi
+          done
+          REAL=$(find /tmp/target-real/release -type f -name "libaws_lc_*_crypto.a")
+          LINK=$(find /tmp/target-link/release -type f -name "libaws_lc_*_crypto.a")
+          if ! diff <(ar t "${REAL}") <(ar t "${LINK}"); then
+            echo "FAIL: archive member names depend on the build path"
+            exit 1
+          fi
+          if strings "${LINK}" | grep -E "/tmp/aws-lc-rs-link/|${PWD}/"; then
+            echo "FAIL: build paths leaked into archive"
+            exit 1
+          fi
 
   cranelift-backend-test:
     if: github.repository_owner == 'aws'
@@ -1189,7 +1252,7 @@ jobs:
     env:
       # Cranelift requires panic=abort as it doesn't fully support unwinding.
       # -Zpanic_abort_tests is required to run tests with panic=abort.
-      RUSTFLAGS: -Zcodegen-backend=cranelift -Cpanic=abort -Zpanic_abort_tests
+      RUSTFLAGS: -Cpanic=abort -Zpanic_abort_tests
     strategy:
       fail-fast: false
       matrix:
@@ -1204,14 +1267,102 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
+      - if: ${{ matrix.os == 'windows-latest' }}
+        uses: ilammy/setup-nasm@v1
       - name: Install Rust toolchain
         run: |
           rustup toolchain install ${{ env.RUST_NIGHTLY_TOOLCHAIN }} --profile minimal --component rustc-codegen-cranelift-preview --no-self-update
           rustup default ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-      - name: Remove other universal bindings
+      # Regression for #1231: Cranelift selected via Cargo profile, not RUSTFLAGS.
+      - name: Run cargo test (profile-selected Cranelift)
         shell: bash
-        run: |
-          rm ./aws-lc-sys/src/universal_crypto.rs
-          rm ./aws-lc-sys/src/universal_prefixed_crypto.rs
-      - name: Run cargo test
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features aws-lc-sys --all-targets
+      - name: Run cargo test (RUSTFLAGS-selected Cranelift)
+        env:
+          RUSTFLAGS: -Zcodegen-backend=cranelift -Cpanic=abort -Zpanic_abort_tests
         run: cargo test -p aws-lc-rs --no-default-features --features aws-lc-sys --all-targets
+
+  # Pregenerated bindings are only refreshed with AWS-LC updates, so also verify
+  # that freshly generated bindings link under Cranelift.
+  cranelift-bindgen-test:
+    if: github.repository_owner == 'aws'
+    name: aws-lc-rs cranelift-bindgen-test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: -Cpanic=abort -Zpanic_abort_tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: 'recursive'
+      - if: ${{ matrix.os == 'windows-latest' }}
+        uses: ilammy/setup-nasm@v1
+      - if: ${{ matrix.os != 'windows-latest' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version: '>=1.18'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_NIGHTLY_TOOLCHAIN }} --profile minimal --component rustc-codegen-cranelift-preview --component rustfmt --no-self-update
+          rustup default ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
+      - if: ${{ matrix.os == 'macos-latest' }}
+        name: Install libclang
+        run: |
+          brew install llvm
+          echo 'LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib' >> "$GITHUB_ENV"
+          echo 'LLVM_CONFIG_PATH=/opt/homebrew/opt/llvm/bin/llvm-config' >> "$GITHUB_ENV"
+      # Build the tool with LLVM, not the job's Cranelift backend.
+      - name: Install bindgen-cli
+        env:
+          RUSTFLAGS: ''
+        run: cargo install --locked bindgen-cli
+      - name: Run binding generator unit tests
+        env:
+          RUSTFLAGS: ''
+        run: cargo test -p builder-test --features bindgen sys_bindgen::tests
+      - name: Run cargo test (internal bindgen)
+        shell: bash
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features aws-lc-sys,bindgen --tests
+      - name: Run cargo test (external bindgen)
+        shell: bash
+        env:
+          AWS_LC_SYS_EXTERNAL_BINDGEN: 1
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features aws-lc-sys --tests
+      - name: Regenerate complete aws-lc-sys bindings for this target
+        env:
+          RUSTFLAGS: ''
+          AWS_LC_SYS_PREGENERATING_BINDINGS: 1
+        run: cargo test -p aws-lc-sys --features bindgen
+      - name: Run cargo test (regenerated all-bindings)
+        shell: bash
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features aws-lc-sys/all-bindings --tests
+      # FIPS builds are supported on Linux and macOS, not Windows.
+      - if: ${{ matrix.os != 'windows-latest' }}
+        name: Run cargo test (FIPS, bindgen)
+        shell: bash
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features fips,bindgen --tests
+      - if: ${{ matrix.os != 'windows-latest' }}
+        name: Run cargo test (FIPS, external bindgen)
+        shell: bash
+        env:
+          AWS_LC_FIPS_SYS_EXTERNAL_BINDGEN: 1
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features fips --tests
+      - if: ${{ matrix.os != 'windows-latest' }}
+        name: Regenerate aws-lc-fips-sys bindings for this target
+        env:
+          RUSTFLAGS: ''
+          AWS_LC_FIPS_SYS_PREGENERATING_BINDINGS: 1
+        run: cargo test -p aws-lc-fips-sys --features bindgen
+      - if: ${{ matrix.os != 'windows-latest' }}
+        name: Run cargo test (FIPS, regenerated bindings)
+        shell: bash
+        run: cargo -Zcodegen-backend --config 'profile.dev.codegen-backend="cranelift"' test -p aws-lc-rs --no-default-features --features fips --tests

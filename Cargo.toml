@@ -17,8 +17,8 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-bindgen = "0.72.0"
-cc = "1.2.26"
+bindgen = "0.73"
+cc = "1.2.41"
 cmake = "0.1.54"
 dunce = "1.0.5"
 fs_extra = "1.3.0"
