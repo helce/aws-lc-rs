@@ -479,15 +479,23 @@ impl CcBuilder {
     ) -> Result<Vec<PathBuf>, cc::Error> {
         let je_cflags_guards = Self::jitter_entropy_cflags_guards(is_cl_like);
         let mut je_builder = self.prepare_jitter_entropy_builder(&je_cflags_guards, is_cl_like);
-        je_builder.flag(format!(
-            "{}{}",
-            if is_cl_like { "/FI" } else { "--include=" },
-            self.manifest_dir
-                .join("generated-include")
-                .join("openssl")
-                .join("boringssl_prefix_symbols.h")
-                .display()
-        ));
+        let force_include_option = if is_cl_like {
+            ("", "/FI")
+        } else {
+            ("-include", "")
+        };
+
+        je_builder
+            .flag(force_include_option.0)
+            .flag(format!(
+                "{}{}",
+                force_include_option.1,
+                self.manifest_dir
+                    .join("generated-include")
+                    .join("openssl")
+                    .join("boringssl_prefix_symbols.h")
+                    .display()
+            ));
         je_builder.files(sources);
         je_builder.try_compile_intermediates()
     }
