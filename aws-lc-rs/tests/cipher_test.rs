@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
 use aws_lc_rs::cipher::{
-    DecryptingKey, DecryptionContext, EncryptingKey, EncryptionContext, OperatingMode,
+    Algorithm, DecryptingKey, DecryptionContext, EncryptingKey, EncryptionContext, OperatingMode,
     PaddedBlockDecryptingKey, PaddedBlockEncryptingKey, StreamingDecryptingKey,
     StreamingEncryptingKey, UnboundCipherKey, AES_128, AES_192, AES_256,
 };
@@ -11,6 +11,7 @@ use aws_lc_rs::cipher::{
 use aws_lc_rs::cipher::{
     DES_EDE3_FOR_LEGACY_USE_ONLY, DES_EDE_FOR_LEGACY_USE_ONLY, DES_FOR_LEGACY_USE_ONLY,
 };
+use aws_lc_rs::error::Unspecified;
 use aws_lc_rs::iv::{FixedLength, IV_LEN_128_BIT};
 use aws_lc_rs::test;
 use aws_lc_rs::test::from_hex;
@@ -61,7 +62,11 @@ fn step_encrypt(
             assert!(ciphertext.len() > plaintext.len());
             assert!(ciphertext.len() <= plaintext.len() + alg.block_len());
         }
-        OperatingMode::CTR | OperatingMode::CFB128 => {
+        OperatingMode::CTR
+        | OperatingMode::CFB128
+        | OperatingMode::CFB8
+        | OperatingMode::CFB1
+        | OperatingMode::OFB => {
             assert_eq!(ciphertext.len(), plaintext.len());
         }
         _ => panic!("Unknown cipher mode"),
@@ -111,7 +116,11 @@ fn step_decrypt(
             assert!(ciphertext.len() > plaintext.len());
             assert!(ciphertext.len() <= plaintext.len() + alg.block_len());
         }
-        OperatingMode::CTR | OperatingMode::CFB128 => {
+        OperatingMode::CTR
+        | OperatingMode::CFB128
+        | OperatingMode::CFB8
+        | OperatingMode::CFB1
+        | OperatingMode::OFB => {
             assert_eq!(ciphertext.len(), plaintext.len());
         }
         _ => panic!("Unknown cipher mode"),
@@ -1448,6 +1457,285 @@ des_cipher_rt!(
     "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51"
 );
 
+// NIST SP 800-38A, Appendix F.
+// <https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf>
+
+// Source: F.4.1
+cipher_kat!(
+    test_kat_aes_128_ofb_16_bytes,
+    &AES_128,
+    OperatingMode::OFB,
+    ofb,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172a",
+    "3b3fd92eb72dad20333449f8e83cfb4a"
+);
+
+// Source: F.4.3
+cipher_kat!(
+    test_kat_aes_192_ofb_16_bytes,
+    &AES_192,
+    OperatingMode::OFB,
+    ofb,
+    "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172a",
+    "cdc80d6fddf18cab34c25909c99a4174"
+);
+
+// Source: F.4.5
+cipher_kat!(
+    test_kat_aes_256_ofb_16_bytes,
+    &AES_256,
+    OperatingMode::OFB,
+    ofb,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172a",
+    "dc7e84bfda79164b7ecd8486985d3860"
+);
+
+// Source: F.4.1, all four blocks
+cipher_kat!(
+    test_kat_aes_128_ofb_64_bytes,
+    &AES_128,
+    OperatingMode::OFB,
+    ofb,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710",
+    "3b3fd92eb72dad20333449f8e83cfb4a7789508d16918f03f53c52dac54ed8259740051e9c5fecf64344f7a82260edcc304c6528f659c77866a510d9c1d6ae5e"
+);
+
+// Source: F.4.3, all four blocks
+cipher_kat!(
+    test_kat_aes_192_ofb_64_bytes,
+    &AES_192,
+    OperatingMode::OFB,
+    ofb,
+    "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710",
+    "cdc80d6fddf18cab34c25909c99a4174fcc28b8d4c63837c09e81700c11004018d9a9aeac0f6596f559c6d4daf59a5f26d9f200857ca6c3e9cac524bd9acc92a"
+);
+
+// Source: F.4.5, all four blocks
+cipher_kat!(
+    test_kat_aes_256_ofb_64_bytes,
+    &AES_256,
+    OperatingMode::OFB,
+    ofb,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710",
+    "dc7e84bfda79164b7ecd8486985d38604febdc6740d20b3ac88f6ad82a4fb08d71ab47a086e86eedf39d1c5bba97c4080126141d67f37be8538f5a8be740e484"
+);
+
+// Source: F.3.7, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_128_cfb8_18_bytes,
+    &AES_128,
+    OperatingMode::CFB8,
+    cfb8,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d",
+    "3b79424c9c0dd436bace9e0ed4586a4f32b9"
+);
+
+// Source: F.3.9, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_192_cfb8_18_bytes,
+    &AES_192,
+    OperatingMode::CFB8,
+    cfb8,
+    "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d",
+    "cda2521ef0a905ca44cd057cbf0d47a0678a"
+);
+
+// Source: F.3.11, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_256_cfb8_18_bytes,
+    &AES_256,
+    OperatingMode::CFB8,
+    cfb8,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1bee22e409f96e93d7e117393172aae2d",
+    "dc1f1a8520a64db55fcc8ac554844e889700"
+);
+
+// Source: F.3.1, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_128_cfb1_2_bytes,
+    &AES_128,
+    OperatingMode::CFB1,
+    cfb1,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "68b3"
+);
+
+// Source: F.3.3, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_192_cfb1_2_bytes,
+    &AES_192,
+    OperatingMode::CFB1,
+    cfb1,
+    "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "9359"
+);
+
+// Source: F.3.5, via AWS-LC cfb_test.cc
+cipher_kat!(
+    test_kat_aes_256_cfb1_2_bytes,
+    &AES_256,
+    OperatingMode::CFB1,
+    cfb1,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "9029"
+);
+
+// Source: F.3.1, via AWS-LC cfb_test.cc
+streaming_cipher_kat!(
+    test_kat_aes_128_cfb1_2_bytes_step1,
+    &AES_128,
+    OperatingMode::CFB1,
+    cfb1,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "68b3",
+    1,
+    1
+);
+
+// Source: F.3.3, via AWS-LC cfb_test.cc
+streaming_cipher_kat!(
+    test_kat_aes_192_cfb1_2_bytes_step1,
+    &AES_192,
+    OperatingMode::CFB1,
+    cfb1,
+    "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "9359",
+    1,
+    1
+);
+
+// Source: F.3.5, via AWS-LC cfb_test.cc
+streaming_cipher_kat!(
+    test_kat_aes_256_cfb1_2_bytes_step1,
+    &AES_256,
+    OperatingMode::CFB1,
+    cfb1,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "000102030405060708090a0b0c0d0e0f",
+    "6bc1",
+    "9029",
+    1,
+    1
+);
+
+cipher_rt!(
+    test_rt_aes_128_cfb8_5_bytes,
+    &AES_128,
+    OperatingMode::CFB8,
+    cfb8,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "6bc1bee22e"
+);
+
+cipher_rt!(
+    test_rt_aes_256_cfb8_5_bytes,
+    &AES_256,
+    OperatingMode::CFB8,
+    cfb8,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "6bc1bee22e"
+);
+
+cipher_rt!(
+    test_rt_aes_128_cfb8_20_bytes,
+    &AES_128,
+    OperatingMode::CFB8,
+    cfb8,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a57"
+);
+
+cipher_rt!(
+    test_rt_aes_256_cfb8_20_bytes,
+    &AES_256,
+    OperatingMode::CFB8,
+    cfb8,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a57"
+);
+
+cipher_rt!(
+    test_rt_aes_128_cfb1_5_bytes,
+    &AES_128,
+    OperatingMode::CFB1,
+    cfb1,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "6bc1bee22e"
+);
+
+cipher_rt!(
+    test_rt_aes_256_cfb1_5_bytes,
+    &AES_256,
+    OperatingMode::CFB1,
+    cfb1,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "6bc1bee22e"
+);
+
+cipher_rt!(
+    test_rt_aes_128_cfb1_20_bytes,
+    &AES_128,
+    OperatingMode::CFB1,
+    cfb1,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a57"
+);
+
+cipher_rt!(
+    test_rt_aes_256_cfb1_20_bytes,
+    &AES_256,
+    OperatingMode::CFB1,
+    cfb1,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "6bc1bee22e409f96e93d7e117393172aae2d8a57"
+);
+
+cipher_rt!(
+    test_rt_aes_128_ofb_17_bytes,
+    &AES_128,
+    OperatingMode::OFB,
+    ofb,
+    "2b7e151628aed2a6abf7158809cf4f3c",
+    "6bc1bee22e409f96e93d7e117393172aae"
+);
+
+cipher_rt!(
+    test_rt_aes_256_ofb_17_bytes,
+    &AES_256,
+    OperatingMode::OFB,
+    ofb,
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+    "6bc1bee22e409f96e93d7e117393172aae"
+);
+
 #[cfg(feature = "legacy-des")]
 des_cipher_kat!(
     test_kat_des_cbc_32_bytes,
@@ -1594,39 +1882,82 @@ fn test_des_ede3_rejects_pairwise_equal_keys() {
 #[cfg(feature = "legacy-des")]
 #[allow(deprecated)]
 fn test_des_unsupported_modes_rejected() {
-    let des_key = from_hex("0123456789abcdef").unwrap();
-    let ede_key = from_hex("0123456789abcdef23456789abcdef01").unwrap();
-    let ede3_key = from_hex("0123456789abcdef23456789abcdef01456789abcdef0123").unwrap();
-
-    for (alg, key_bytes) in [
-        (&DES_FOR_LEGACY_USE_ONLY, des_key.as_slice()),
-        (&DES_EDE_FOR_LEGACY_USE_ONLY, ede_key.as_slice()),
-        (&DES_EDE3_FOR_LEGACY_USE_ONLY, ede3_key.as_slice()),
+    for (alg, key_hex) in [
+        (&DES_FOR_LEGACY_USE_ONLY, "0123456789abcdef"),
+        (
+            &DES_EDE_FOR_LEGACY_USE_ONLY,
+            "0123456789abcdef23456789abcdef01",
+        ),
+        (
+            &DES_EDE3_FOR_LEGACY_USE_ONLY,
+            "0123456789abcdef23456789abcdef01456789abcdef0123",
+        ),
     ] {
+        let key_bytes = from_hex(key_hex).unwrap();
+
         // CTR must be rejected
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         EncryptingKey::ctr(unbound).expect_err("DES + CTR should be rejected");
 
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         DecryptingKey::ctr(unbound).expect_err("DES + CTR should be rejected (decrypt)");
 
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         assert!(
             StreamingEncryptingKey::ctr(unbound).is_err(),
             "DES + CTR should be rejected (streaming encrypt)"
         );
 
         // CFB128 must be rejected
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         EncryptingKey::cfb128(unbound).expect_err("DES + CFB128 should be rejected");
 
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         DecryptingKey::cfb128(unbound).expect_err("DES + CFB128 should be rejected (decrypt)");
 
-        let unbound = UnboundCipherKey::new(alg, key_bytes).unwrap();
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
         assert!(
             StreamingEncryptingKey::cfb128(unbound).is_err(),
             "DES + CFB128 should be rejected (streaming encrypt)"
+        );
+
+        // CFB8 must be rejected
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        EncryptingKey::cfb8(unbound).expect_err("DES + CFB8 should be rejected");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        DecryptingKey::cfb8(unbound).expect_err("DES + CFB8 should be rejected (decrypt)");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        assert!(
+            StreamingEncryptingKey::cfb8(unbound).is_err(),
+            "DES + CFB8 should be rejected (streaming encrypt)"
+        );
+
+        // CFB1 must be rejected
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        EncryptingKey::cfb1(unbound).expect_err("DES + CFB1 should be rejected");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        DecryptingKey::cfb1(unbound).expect_err("DES + CFB1 should be rejected (decrypt)");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        assert!(
+            StreamingEncryptingKey::cfb1(unbound).is_err(),
+            "DES + CFB1 should be rejected (streaming encrypt)"
+        );
+
+        // OFB must be rejected
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        EncryptingKey::ofb(unbound).expect_err("DES + OFB should be rejected");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        DecryptingKey::ofb(unbound).expect_err("DES + OFB should be rejected (decrypt)");
+
+        let unbound = UnboundCipherKey::new(alg, &key_bytes).unwrap();
+        assert!(
+            StreamingEncryptingKey::ofb(unbound).is_err(),
+            "DES + OFB should be rejected (streaming encrypt)"
         );
     }
 }
@@ -1855,4 +2186,77 @@ des_padded_cipher_rt!(
 fn test_streaming_cipher_traits() {
     test::compile_time_assert_send::<StreamingEncryptingKey>();
     test::compile_time_assert_send::<StreamingDecryptingKey>();
+}
+
+type DecryptingKeyConstructor = fn(UnboundCipherKey) -> Result<DecryptingKey, Unspecified>;
+type DecryptionContextConstructor = fn() -> DecryptionContext;
+
+/// Asserts that `DecryptingKey::decrypt` returns an error, rather than panicking,
+/// for every `DecryptionContext` variant except `valid_context`. The valid
+/// variant must be accepted, so the check cannot pass by rejecting everything.
+fn assert_decrypt_validates_context(
+    algorithm: &'static Algorithm,
+    key_bytes: &[u8],
+    modes: &[(DecryptingKeyConstructor, &str)],
+) {
+    let contexts: &[(&str, DecryptionContextConstructor)] = &[
+        ("None", || DecryptionContext::None),
+        ("Iv128", || {
+            DecryptionContext::Iv128(FixedLength::from([0u8; IV_LEN_128_BIT]))
+        }),
+        #[cfg(feature = "legacy-des")]
+        ("Iv64", || {
+            DecryptionContext::Iv64(FixedLength::from([0u8; 8]))
+        }),
+    ];
+    for &(new_key, valid_context) in modes {
+        let key = new_key(UnboundCipherKey::new(algorithm, key_bytes).unwrap()).unwrap();
+        for &(context_name, new_context) in contexts {
+            let mut in_out = vec![0u8; algorithm.block_len()];
+            let result = key.decrypt(&mut in_out, new_context());
+            assert_eq!(
+                result.is_ok(),
+                context_name == valid_context,
+                "{algorithm:?} {:?} decrypt with {context_name} context",
+                key.mode(),
+            );
+        }
+    }
+}
+
+#[test]
+fn test_decrypt_rejects_mismatched_context() {
+    assert_decrypt_validates_context(
+        &AES_128,
+        &from_hex("000102030405060708090a0b0c0d0e0f").unwrap(),
+        &[
+            (DecryptingKey::cbc, "Iv128"),
+            (DecryptingKey::ctr, "Iv128"),
+            (DecryptingKey::cfb128, "Iv128"),
+            (DecryptingKey::ecb, "None"),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "legacy-des")]
+#[allow(deprecated)]
+fn test_des_decrypt_rejects_mismatched_context() {
+    for (algorithm, key_hex) in [
+        (&DES_FOR_LEGACY_USE_ONLY, "0123456789abcdef"),
+        (
+            &DES_EDE_FOR_LEGACY_USE_ONLY,
+            "0123456789abcdef23456789abcdef01",
+        ),
+        (
+            &DES_EDE3_FOR_LEGACY_USE_ONLY,
+            "0123456789abcdef23456789abcdef01456789abcdef0123",
+        ),
+    ] {
+        assert_decrypt_validates_context(
+            algorithm,
+            &from_hex(key_hex).unwrap(),
+            &[(DecryptingKey::cbc, "Iv64"), (DecryptingKey::ecb, "None")],
+        );
+    }
 }
